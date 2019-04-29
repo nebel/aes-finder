@@ -5,6 +5,9 @@
 #include <string.h>
 
 #define WIN32_LEAN_AND_MEAN
+#ifdef _WIN32_WINNT
+#undef _WIN32_WINNT
+#endif
 #define _WIN32_WINNT 0x0502
 #include <windows.h>
 #include <tlhelp32.h>

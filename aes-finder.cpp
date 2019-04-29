@@ -3,14 +3,20 @@
 #include <string.h>
 #include <stdio.h>
 #include <time.h>
+#include <vector>
+#include <thread>
+#include <mutex>
+#include <atomic>
+#include <list>
+#include <algorithm>
 
 #if defined(_MSC_VER) && (defined(_M_IX86) || defined(_M_AMD64))
 // _rotr is in <stdlib.h>
 #elif defined(__clang__) && (defined(__i386__) || defined(__x86_64__))
 static uint32_t _rotr(uint32_t x, int n)
 {
-    __asm__ __volatile__("rorl %2, %0" : "=r"(x) : "0"(x), "Nc"(n));
-    return x;
+	__asm__ __volatile__("rorl %2, %0" : "=r"(x) : "0"(x), "Nc"(n));
+	return x;
 }
 #elif defined(__GNUC__) && (defined(__i386__) || defined(__x86_64__))
 // _rotr is in <ia32intrin.h>
@@ -18,7 +24,7 @@ static uint32_t _rotr(uint32_t x, int n)
 #else
 static uint32_t _rotr(uint32_t x, int n)
 {
-    return (x >> n) | (x << (32 - n));
+	return (x >> n) | (x << (32 - n));
 }
 #endif
 
@@ -113,28 +119,28 @@ static const uint32_t TE[256] = {
 
 static uint8_t byte(uint32_t x, int n)
 {
-    return (uint8_t)(x >> (8 * n));
+	return (uint8_t)(x >> (8 * n));
 }
 
 static uint32_t rotr32(uint32_t x, int n)
 {
-    return _rotr(x, n);
+	return _rotr(x, n);
 }
 
 static uint32_t setup_mix(uint32_t temp)
 {
-    return (Te[byte(temp, 2)] << 24)
-         ^ (Te[byte(temp, 1)] << 16)
-         ^ (Te[byte(temp, 0)] << 8)
-         ^  Te[byte(temp, 3)];
+	return (Te[byte(temp, 2)] << 24)
+		^ (Te[byte(temp, 1)] << 16)
+		^ (Te[byte(temp, 0)] << 8)
+		^ Te[byte(temp, 3)];
 }
 
 static uint32_t setup_mix2(uint32_t temp)
 {
-    return rotr32(TE[Td[byte(temp, 3)]], 0)
-         ^ rotr32(TE[Td[byte(temp, 2)]], 8)
-         ^ rotr32(TE[Td[byte(temp, 1)]], 16)
-         ^ rotr32(TE[Td[byte(temp, 0)]], 24);
+	return rotr32(TE[Td[byte(temp, 3)]], 0)
+		^ rotr32(TE[Td[byte(temp, 2)]], 8)
+		^ rotr32(TE[Td[byte(temp, 1)]], 16)
+		^ rotr32(TE[Td[byte(temp, 0)]], 24);
 }
 
 template <bool reversed>
@@ -143,16 +149,16 @@ uint32_t load(uint32_t x);
 template <>
 uint32_t load<true>(uint32_t x)
 {
-    return x;
+	return x;
 }
 
 template <>
 uint32_t load<false>(uint32_t x)
 {
 #ifdef _MSC_VER
-    return _byteswap_ulong(x);
+	return _byteswap_ulong(x);
 #else
-    return __builtin_bswap32(x);
+	return __builtin_bswap32(x);
 #endif
 }
 
@@ -162,884 +168,980 @@ void store(uint32_t x, uint8_t* ptr);
 template <>
 void store<true>(uint32_t x, uint8_t* ptr)
 {
-    (uint32_t&)*ptr = x;
+	(uint32_t&)*ptr = x;
 }
 
 template <>
 void store<false>(uint32_t x, uint8_t* ptr)
 {
 #ifdef _MSC_VER
-    (uint32_t&)*ptr = _byteswap_ulong(x);
+	(uint32_t&)*ptr = _byteswap_ulong(x);
 #else
-    (uint32_t&)*ptr = __builtin_bswap32(x);
+	(uint32_t&)*ptr = __builtin_bswap32(x);
 #endif
 }
 
 template <bool reversed>
 static bool aes128_detect_enc(const uint32_t* ctx, uint8_t* key)
 {
-    const uint32_t* ptr = ctx;
+	const uint32_t* ptr = ctx;
 
-    uint32_t tmp[8];
-    tmp[0] = load<reversed>(ctx[0]);
-    tmp[1] = load<reversed>(ctx[1]);
-    tmp[2] = load<reversed>(ctx[2]);
-    tmp[3] = load<reversed>(ctx[3]);
+	uint32_t tmp[8];
+	tmp[0] = load<reversed>(ctx[0]);
+	tmp[1] = load<reversed>(ctx[1]);
+	tmp[2] = load<reversed>(ctx[2]);
+	tmp[3] = load<reversed>(ctx[3]);
 
-    for (int i = 0; ctx += 4, i < 10; i++)
-    {
-        tmp[4] = tmp[0] ^ setup_mix(tmp[3]) ^ rcon[i];
-        if (tmp[4] != load<reversed>(ctx[0])) return false;
+	for (int i = 0; ctx += 4, i < 10; i++)
+	{
+		tmp[4] = tmp[0] ^ setup_mix(tmp[3]) ^ rcon[i];
+		if (tmp[4] != load<reversed>(ctx[0])) return false;
 
-        tmp[5] = tmp[1] ^ tmp[4];
-        if (tmp[5] != load<reversed>(ctx[1])) return false;
+		tmp[5] = tmp[1] ^ tmp[4];
+		if (tmp[5] != load<reversed>(ctx[1])) return false;
 
-        tmp[6] = tmp[2] ^ tmp[5];
-        if (tmp[6] != load<reversed>(ctx[2])) return false;
+		tmp[6] = tmp[2] ^ tmp[5];
+		if (tmp[6] != load<reversed>(ctx[2])) return false;
 
-        tmp[7] = tmp[3] ^ tmp[6];
-        if (tmp[7] != load<reversed>(ctx[3])) return false;
+		tmp[7] = tmp[3] ^ tmp[6];
+		if (tmp[7] != load<reversed>(ctx[3])) return false;
 
-        tmp[0] = tmp[4];
-        tmp[1] = tmp[5];
-        tmp[2] = tmp[6];
-        tmp[3] = tmp[7];
-    }
+		tmp[0] = tmp[4];
+		tmp[1] = tmp[5];
+		tmp[2] = tmp[6];
+		tmp[3] = tmp[7];
+	}
 
-    store<false>(load<reversed>(ptr[0]), key + 0);
-    store<false>(load<reversed>(ptr[1]), key + 4);
-    store<false>(load<reversed>(ptr[2]), key + 8);
-    store<false>(load<reversed>(ptr[3]), key + 12);
+	store<false>(load<reversed>(ptr[0]), key + 0);
+	store<false>(load<reversed>(ptr[1]), key + 4);
+	store<false>(load<reversed>(ptr[2]), key + 8);
+	store<false>(load<reversed>(ptr[3]), key + 12);
 
-    return true;
+	return true;
 }
 
 template <bool reversed>
 static bool aes192_detect_enc(const uint32_t* ctx, uint8_t* key)
 {
-    const uint32_t* ptr = ctx;
+	const uint32_t* ptr = ctx;
 
-    uint32_t tmp[12];
-    for (int k = 0; k < 6; k++)
-    {
-        tmp[k] = load<reversed>(ctx[k]);
-    }
- 
-    int i = 0;
-    for (;;)
-    {
-        ctx += 6;
+	uint32_t tmp[12];
+	for (int k = 0; k < 6; k++)
+	{
+		tmp[k] = load<reversed>(ctx[k]);
+	}
 
-        tmp[6] = tmp[0] ^ setup_mix(tmp[5]) ^ rcon[i];
-        if (tmp[6] != load<reversed>(ctx[0])) return false;
+	int i = 0;
+	for (;;)
+	{
+		ctx += 6;
 
-        tmp[7] = tmp[1] ^ tmp[6];
-        if (tmp[7] != load<reversed>(ctx[1])) return false;
+		tmp[6] = tmp[0] ^ setup_mix(tmp[5]) ^ rcon[i];
+		if (tmp[6] != load<reversed>(ctx[0])) return false;
 
-        tmp[8] = tmp[2] ^ tmp[7];
-        if (tmp[8] != load<reversed>(ctx[2])) return false;
+		tmp[7] = tmp[1] ^ tmp[6];
+		if (tmp[7] != load<reversed>(ctx[1])) return false;
 
-        tmp[9] = tmp[3] ^ tmp[8];
-        if (tmp[9] != load<reversed>(ctx[3])) return false;
+		tmp[8] = tmp[2] ^ tmp[7];
+		if (tmp[8] != load<reversed>(ctx[2])) return false;
 
-        if (++i == 8)
-        {
-            break;
-        }
+		tmp[9] = tmp[3] ^ tmp[8];
+		if (tmp[9] != load<reversed>(ctx[3])) return false;
 
-        tmp[10] = tmp[4] ^ tmp[9];
-        if (tmp[10] != load<reversed>(ctx[4])) return false;
+		if (++i == 8)
+		{
+			break;
+		}
 
-        tmp[11] = tmp[5] ^ tmp[10];
-        if (tmp[11] != load<reversed>(ctx[5])) return false;
-        
-        for (int k = 0; k < 6; k++)
-        {
-            tmp[k] = tmp[6 + k];
-        }
-    }
+		tmp[10] = tmp[4] ^ tmp[9];
+		if (tmp[10] != load<reversed>(ctx[4])) return false;
 
-    for (int k = 0; k < 6; k++)
-    {
-        store<false>(load<reversed>(ptr[k]), key + 4 * k);
-    }
+		tmp[11] = tmp[5] ^ tmp[10];
+		if (tmp[11] != load<reversed>(ctx[5])) return false;
 
-    return true;
+		for (int k = 0; k < 6; k++)
+		{
+			tmp[k] = tmp[6 + k];
+		}
+	}
+
+	for (int k = 0; k < 6; k++)
+	{
+		store<false>(load<reversed>(ptr[k]), key + 4 * k);
+	}
+
+	return true;
 }
 
 template <bool reversed>
 static bool aes256_detect_enc(const uint32_t* ctx, uint8_t* key)
 {
-    const uint32_t* ptr = ctx;
- 
-    uint32_t tmp[16];
-    for (int k = 0; k < 8; k++)
-    {
-        tmp[k] = load<reversed>(ctx[k]);
-    }
+	const uint32_t* ptr = ctx;
 
-    int i = 0;
-    for (;;)
-    {
-        ctx += 8;
+	uint32_t tmp[16];
+	for (int k = 0; k < 8; k++)
+	{
+		tmp[k] = load<reversed>(ctx[k]);
+	}
 
-        tmp[8] = tmp[0] ^ setup_mix(tmp[7]) ^ rcon[i];
-        if (tmp[8] != load<reversed>(ctx[0])) return false;
+	int i = 0;
+	for (;;)
+	{
+		ctx += 8;
 
-        tmp[9] = tmp[1] ^ tmp[8];
-        if (tmp[9] != load<reversed>(ctx[1])) return false;
+		tmp[8] = tmp[0] ^ setup_mix(tmp[7]) ^ rcon[i];
+		if (tmp[8] != load<reversed>(ctx[0])) return false;
 
-        tmp[10] = tmp[2] ^ tmp[9];
-        if (tmp[10] != load<reversed>(ctx[2])) return false;
+		tmp[9] = tmp[1] ^ tmp[8];
+		if (tmp[9] != load<reversed>(ctx[1])) return false;
 
-        tmp[11] = tmp[3] ^ tmp[10];
-        if (tmp[11] != load<reversed>(ctx[3])) return false;
+		tmp[10] = tmp[2] ^ tmp[9];
+		if (tmp[10] != load<reversed>(ctx[2])) return false;
 
-        if (++i == 7)
-        {
-            break;
-        }
+		tmp[11] = tmp[3] ^ tmp[10];
+		if (tmp[11] != load<reversed>(ctx[3])) return false;
 
-        tmp[12] = tmp[4] ^ setup_mix(rotr32(tmp[11], 8));
-        if (tmp[12] != load<reversed>(ctx[4])) return false;
+		if (++i == 7)
+		{
+			break;
+		}
 
-        tmp[13] = tmp[5] ^ tmp[12];
-        if (tmp[13] != load<reversed>(ctx[5])) return false;
+		tmp[12] = tmp[4] ^ setup_mix(rotr32(tmp[11], 8));
+		if (tmp[12] != load<reversed>(ctx[4])) return false;
 
-        tmp[14] = tmp[6] ^ tmp[13];
-        if (tmp[14] != load<reversed>(ctx[6])) return false;
+		tmp[13] = tmp[5] ^ tmp[12];
+		if (tmp[13] != load<reversed>(ctx[5])) return false;
 
-        tmp[15] = tmp[7] ^ tmp[14];
-        if (tmp[15] != load<reversed>(ctx[7])) return false;
+		tmp[14] = tmp[6] ^ tmp[13];
+		if (tmp[14] != load<reversed>(ctx[6])) return false;
 
-        for (int k = 0; k < 8; k++)
-        {
-            tmp[k] = tmp[8 + k];
-        }
-    }
+		tmp[15] = tmp[7] ^ tmp[14];
+		if (tmp[15] != load<reversed>(ctx[7])) return false;
 
-    for (int k = 0; k < 8; k++)
-    {
-        store<false>(load<reversed>(ptr[k]), key + 4 * k);
-    }
+		for (int k = 0; k < 8; k++)
+		{
+			tmp[k] = tmp[8 + k];
+		}
+	}
 
-    return true;
+	for (int k = 0; k < 8; k++)
+	{
+		store<false>(load<reversed>(ptr[k]), key + 4 * k);
+	}
+
+	return true;
 }
 
 static int aes_detect_enc(const uint32_t* ctx, uint8_t* key)
 {
-    if (aes128_detect_enc<true>(ctx, key) || aes128_detect_enc<false>(ctx, key))
-    {
-        return 16;
-    }
-    else if (aes192_detect_enc<true>(ctx, key) || aes192_detect_enc<false>(ctx, key))
-    {
-        return 24;
-    }
-    else if (aes256_detect_enc<true>(ctx, key) || aes256_detect_enc<false>(ctx, key))
-    {
-        return 32;
-    }
+	if (aes128_detect_enc<true>(ctx, key) || aes128_detect_enc<false>(ctx, key))
+	{
+		return 16;
+	}
+	else if (aes192_detect_enc<true>(ctx, key) || aes192_detect_enc<false>(ctx, key))
+	{
+		return 24;
+	}
+	else if (aes256_detect_enc<true>(ctx, key) || aes256_detect_enc<false>(ctx, key))
+	{
+		return 32;
+	}
 
-    return 0;
+	return 0;
 }
 
 template <bool reversed>
 static bool aes128_detect_decF(const uint32_t* ctx, uint8_t* key)
 {
-    const uint32_t* ptr = ctx;
+	const uint32_t* ptr = ctx;
 
-    uint32_t tmp[8];
-    tmp[0] = load<reversed>(ctx[0]);
-    tmp[1] = load<reversed>(ctx[1]);
-    tmp[2] = load<reversed>(ctx[2]);
-    tmp[3] = load<reversed>(ctx[3]);
+	uint32_t tmp[8];
+	tmp[0] = load<reversed>(ctx[0]);
+	tmp[1] = load<reversed>(ctx[1]);
+	tmp[2] = load<reversed>(ctx[2]);
+	tmp[3] = load<reversed>(ctx[3]);
 
-    for (int i = 0; ctx += 4, i < 9; i++)
-    {
-        tmp[4] = tmp[0] ^ setup_mix(tmp[3]) ^ rcon[i];
-        if (tmp[4] != setup_mix2(load<reversed>(ctx[0]))) return false;
+	for (int i = 0; ctx += 4, i < 9; i++)
+	{
+		tmp[4] = tmp[0] ^ setup_mix(tmp[3]) ^ rcon[i];
+		if (tmp[4] != setup_mix2(load<reversed>(ctx[0]))) return false;
 
-        tmp[5] = tmp[1] ^ tmp[4];
-        if (tmp[5] != setup_mix2(load<reversed>(ctx[1]))) return false;
+		tmp[5] = tmp[1] ^ tmp[4];
+		if (tmp[5] != setup_mix2(load<reversed>(ctx[1]))) return false;
 
-        tmp[6] = tmp[2] ^ tmp[5];
-        if (tmp[6] != setup_mix2(load<reversed>(ctx[2]))) return false;
+		tmp[6] = tmp[2] ^ tmp[5];
+		if (tmp[6] != setup_mix2(load<reversed>(ctx[2]))) return false;
 
-        tmp[7] = tmp[3] ^ tmp[6];
-        if (tmp[7] != setup_mix2(load<reversed>(ctx[3]))) return false;
+		tmp[7] = tmp[3] ^ tmp[6];
+		if (tmp[7] != setup_mix2(load<reversed>(ctx[3]))) return false;
 
-        tmp[0] = tmp[4];
-        tmp[1] = tmp[5];
-        tmp[2] = tmp[6];
-        tmp[3] = tmp[7];
-    }
+		tmp[0] = tmp[4];
+		tmp[1] = tmp[5];
+		tmp[2] = tmp[6];
+		tmp[3] = tmp[7];
+	}
 
-    tmp[4] = tmp[0] ^ setup_mix(tmp[3]) ^ rcon[9];
-    if (tmp[4] != load<reversed>(ctx[0])) return false;
+	tmp[4] = tmp[0] ^ setup_mix(tmp[3]) ^ rcon[9];
+	if (tmp[4] != load<reversed>(ctx[0])) return false;
 
-    tmp[5] = tmp[1] ^ tmp[4];
-    if (tmp[5] != load<reversed>(ctx[1])) return false;
+	tmp[5] = tmp[1] ^ tmp[4];
+	if (tmp[5] != load<reversed>(ctx[1])) return false;
 
-    tmp[6] = tmp[2] ^ tmp[5];
-    if (tmp[6] != load<reversed>(ctx[2])) return false;
+	tmp[6] = tmp[2] ^ tmp[5];
+	if (tmp[6] != load<reversed>(ctx[2])) return false;
 
-    tmp[7] = tmp[3] ^ tmp[6];
-    if (tmp[7] != load<reversed>(ctx[3])) return false;
+	tmp[7] = tmp[3] ^ tmp[6];
+	if (tmp[7] != load<reversed>(ctx[3])) return false;
 
-    store<false>(load<reversed>(ptr[0]), key + 0);
-    store<false>(load<reversed>(ptr[1]), key + 4);
-    store<false>(load<reversed>(ptr[2]), key + 8);
-    store<false>(load<reversed>(ptr[3]), key + 12);
+	store<false>(load<reversed>(ptr[0]), key + 0);
+	store<false>(load<reversed>(ptr[1]), key + 4);
+	store<false>(load<reversed>(ptr[2]), key + 8);
+	store<false>(load<reversed>(ptr[3]), key + 12);
 
-    return true;
+	return true;
 }
 
 template <bool reversed>
 static bool aes128_detect_decB(const uint32_t* ctx, uint8_t* key)
 {
-    uint32_t tmp[8];
-    tmp[0] = load<reversed>(ctx[40]);
-    tmp[1] = load<reversed>(ctx[41]);
-    tmp[2] = load<reversed>(ctx[42]);
-    tmp[3] = load<reversed>(ctx[43]);
+	uint32_t tmp[8];
+	tmp[0] = load<reversed>(ctx[40]);
+	tmp[1] = load<reversed>(ctx[41]);
+	tmp[2] = load<reversed>(ctx[42]);
+	tmp[3] = load<reversed>(ctx[43]);
 
-    for (int i = 0; i < 9; i++)
-    {
-        tmp[4] = tmp[0] ^ setup_mix(tmp[3]) ^ rcon[i];
-        if (tmp[4] != setup_mix2(load<reversed>(ctx[36 - 4 * i]))) return false;
+	for (int i = 0; i < 9; i++)
+	{
+		tmp[4] = tmp[0] ^ setup_mix(tmp[3]) ^ rcon[i];
+		if (tmp[4] != setup_mix2(load<reversed>(ctx[36 - 4 * i]))) return false;
 
-        tmp[5] = tmp[1] ^ tmp[4];
-        if (tmp[5] != setup_mix2(load<reversed>(ctx[37 - 4 * i]))) return false;
+		tmp[5] = tmp[1] ^ tmp[4];
+		if (tmp[5] != setup_mix2(load<reversed>(ctx[37 - 4 * i]))) return false;
 
-        tmp[6] = tmp[2] ^ tmp[5];
-        if (tmp[6] != setup_mix2(load<reversed>(ctx[38 - 4 * i]))) return false;
+		tmp[6] = tmp[2] ^ tmp[5];
+		if (tmp[6] != setup_mix2(load<reversed>(ctx[38 - 4 * i]))) return false;
 
-        tmp[7] = tmp[3] ^ tmp[6];
-        if (tmp[7] != setup_mix2(load<reversed>(ctx[39 - 4 * i]))) return false;
+		tmp[7] = tmp[3] ^ tmp[6];
+		if (tmp[7] != setup_mix2(load<reversed>(ctx[39 - 4 * i]))) return false;
 
-        tmp[0] = tmp[4];
-        tmp[1] = tmp[5];
-        tmp[2] = tmp[6];
-        tmp[3] = tmp[7];
-    }
+		tmp[0] = tmp[4];
+		tmp[1] = tmp[5];
+		tmp[2] = tmp[6];
+		tmp[3] = tmp[7];
+	}
 
-    tmp[4] = tmp[0] ^ setup_mix(tmp[3]) ^ rcon[9];
-    if (tmp[4] != load<reversed>(ctx[0])) return false;
+	tmp[4] = tmp[0] ^ setup_mix(tmp[3]) ^ rcon[9];
+	if (tmp[4] != load<reversed>(ctx[0])) return false;
 
-    tmp[5] = tmp[1] ^ tmp[4];
-    if (tmp[5] != load<reversed>(ctx[1])) return false;
+	tmp[5] = tmp[1] ^ tmp[4];
+	if (tmp[5] != load<reversed>(ctx[1])) return false;
 
-    tmp[6] = tmp[2] ^ tmp[5];
-    if (tmp[6] != load<reversed>(ctx[2])) return false;
+	tmp[6] = tmp[2] ^ tmp[5];
+	if (tmp[6] != load<reversed>(ctx[2])) return false;
 
-    tmp[7] = tmp[3] ^ tmp[6];
-    if (tmp[7] != load<reversed>(ctx[3])) return false;
+	tmp[7] = tmp[3] ^ tmp[6];
+	if (tmp[7] != load<reversed>(ctx[3])) return false;
 
-    store<false>(load<reversed>(ctx[40]), key + 0);
-    store<false>(load<reversed>(ctx[41]), key + 4);
-    store<false>(load<reversed>(ctx[42]), key + 8);
-    store<false>(load<reversed>(ctx[43]), key + 12);
+	store<false>(load<reversed>(ctx[40]), key + 0);
+	store<false>(load<reversed>(ctx[41]), key + 4);
+	store<false>(load<reversed>(ctx[42]), key + 8);
+	store<false>(load<reversed>(ctx[43]), key + 12);
 
-    return true;
+	return true;
 }
 
 template <bool reversed>
 static bool aes192_detect_decF(const uint32_t* ctx, uint8_t* key)
 {
-    const uint32_t* ptr = ctx;
+	const uint32_t* ptr = ctx;
 
-    uint32_t tmp[12];
-    tmp[0] = load<reversed>(ctx[0]);
-    tmp[1] = load<reversed>(ctx[1]);
-    tmp[2] = load<reversed>(ctx[2]);
-    tmp[3] = load<reversed>(ctx[3]);
-    tmp[4] = setup_mix2(load<reversed>(ctx[4]));
-    tmp[5] = setup_mix2(load<reversed>(ctx[5]));
+	uint32_t tmp[12];
+	tmp[0] = load<reversed>(ctx[0]);
+	tmp[1] = load<reversed>(ctx[1]);
+	tmp[2] = load<reversed>(ctx[2]);
+	tmp[3] = load<reversed>(ctx[3]);
+	tmp[4] = setup_mix2(load<reversed>(ctx[4]));
+	tmp[5] = setup_mix2(load<reversed>(ctx[5]));
 
-    for (int i = 0; ctx += 6, i < 7; i++)
-    {
-        tmp[6] = tmp[0] ^ setup_mix(tmp[5]) ^ rcon[i];
-        if (tmp[6] != setup_mix2(load<reversed>(ctx[0]))) return false;
+	for (int i = 0; ctx += 6, i < 7; i++)
+	{
+		tmp[6] = tmp[0] ^ setup_mix(tmp[5]) ^ rcon[i];
+		if (tmp[6] != setup_mix2(load<reversed>(ctx[0]))) return false;
 
-        tmp[7] = tmp[1] ^ tmp[6];
-        if (tmp[7] != setup_mix2(load<reversed>(ctx[1]))) return false;
+		tmp[7] = tmp[1] ^ tmp[6];
+		if (tmp[7] != setup_mix2(load<reversed>(ctx[1]))) return false;
 
-        tmp[8] = tmp[2] ^ tmp[7];
-        if (tmp[8] != setup_mix2(load<reversed>(ctx[2]))) return false;
+		tmp[8] = tmp[2] ^ tmp[7];
+		if (tmp[8] != setup_mix2(load<reversed>(ctx[2]))) return false;
 
-        tmp[9] = tmp[3] ^ tmp[8];
-        if (tmp[9] != setup_mix2(load<reversed>(ctx[3]))) return false;
+		tmp[9] = tmp[3] ^ tmp[8];
+		if (tmp[9] != setup_mix2(load<reversed>(ctx[3]))) return false;
 
-        tmp[10] = tmp[4] ^ tmp[9];
-        if (tmp[10] != setup_mix2(load<reversed>(ctx[4]))) return false;
+		tmp[10] = tmp[4] ^ tmp[9];
+		if (tmp[10] != setup_mix2(load<reversed>(ctx[4]))) return false;
 
-        tmp[11] = tmp[5] ^ tmp[10];
-        if (tmp[11] != setup_mix2(load<reversed>(ctx[5]))) return false;
+		tmp[11] = tmp[5] ^ tmp[10];
+		if (tmp[11] != setup_mix2(load<reversed>(ctx[5]))) return false;
 
-        for (int k = 0; k < 6; k++)
-        {
-            tmp[k] = tmp[6 + k];
-        }
-    }
+		for (int k = 0; k < 6; k++)
+		{
+			tmp[k] = tmp[6 + k];
+		}
+	}
 
-    tmp[6] = tmp[0] ^ setup_mix(tmp[5]) ^ rcon[7];
-    if (tmp[6] != load<reversed>(ctx[0])) return false;
+	tmp[6] = tmp[0] ^ setup_mix(tmp[5]) ^ rcon[7];
+	if (tmp[6] != load<reversed>(ctx[0])) return false;
 
-    tmp[7] = tmp[1] ^ tmp[6];
-    if (tmp[7] != load<reversed>(ctx[1])) return false;
+	tmp[7] = tmp[1] ^ tmp[6];
+	if (tmp[7] != load<reversed>(ctx[1])) return false;
 
-    tmp[8] = tmp[2] ^ tmp[7];
-    if (tmp[8] != load<reversed>(ctx[2])) return false;
+	tmp[8] = tmp[2] ^ tmp[7];
+	if (tmp[8] != load<reversed>(ctx[2])) return false;
 
-    tmp[9] = tmp[3] ^ tmp[8];
-    if (tmp[9] != load<reversed>(ctx[3])) return false;
+	tmp[9] = tmp[3] ^ tmp[8];
+	if (tmp[9] != load<reversed>(ctx[3])) return false;
 
-    store<false>(load<reversed>(ptr[0]), key + 0);
-    store<false>(load<reversed>(ptr[1]), key + 4);
-    store<false>(load<reversed>(ptr[2]), key + 8);
-    store<false>(load<reversed>(ptr[3]), key + 12);
-    store<false>(setup_mix2(load<reversed>(ptr[4])), key + 16);
-    store<false>(setup_mix2(load<reversed>(ptr[5])), key + 20);
+	store<false>(load<reversed>(ptr[0]), key + 0);
+	store<false>(load<reversed>(ptr[1]), key + 4);
+	store<false>(load<reversed>(ptr[2]), key + 8);
+	store<false>(load<reversed>(ptr[3]), key + 12);
+	store<false>(setup_mix2(load<reversed>(ptr[4])), key + 16);
+	store<false>(setup_mix2(load<reversed>(ptr[5])), key + 20);
 
-    return true;
+	return true;
 }
 
 template <bool reversed>
 static bool aes192_detect_decB(const uint32_t* ctx, uint8_t* key)
 {
-    uint32_t tmp[12];
+	uint32_t tmp[12];
 
-    tmp[0] = load<reversed>(ctx[48]);
-    tmp[1] = load<reversed>(ctx[49]);
-    tmp[2] = load<reversed>(ctx[50]);
-    tmp[3] = load<reversed>(ctx[51]);
+	tmp[0] = load<reversed>(ctx[48]);
+	tmp[1] = load<reversed>(ctx[49]);
+	tmp[2] = load<reversed>(ctx[50]);
+	tmp[3] = load<reversed>(ctx[51]);
 
-    //
+	//
 
-    tmp[4] = setup_mix2(load<reversed>(ctx[44]));
-    tmp[5] = setup_mix2(load<reversed>(ctx[45]));
+	tmp[4] = setup_mix2(load<reversed>(ctx[44]));
+	tmp[5] = setup_mix2(load<reversed>(ctx[45]));
 
-    tmp[6] = tmp[0] ^ setup_mix(tmp[5]) ^ rcon[0];
-    if (tmp[6] != setup_mix2(load<reversed>(ctx[46]))) return false;
+	tmp[6] = tmp[0] ^ setup_mix(tmp[5]) ^ rcon[0];
+	if (tmp[6] != setup_mix2(load<reversed>(ctx[46]))) return false;
 
-    tmp[7] = tmp[1] ^ tmp[6];
-    if (tmp[7] != setup_mix2(load<reversed>(ctx[47]))) return false;
+	tmp[7] = tmp[1] ^ tmp[6];
+	if (tmp[7] != setup_mix2(load<reversed>(ctx[47]))) return false;
 
-    //
+	//
 
-    tmp[8] = tmp[2] ^ tmp[7];
-    if (tmp[8] != setup_mix2(load<reversed>(ctx[40]))) return false;
+	tmp[8] = tmp[2] ^ tmp[7];
+	if (tmp[8] != setup_mix2(load<reversed>(ctx[40]))) return false;
 
-    tmp[9] = tmp[3] ^ tmp[8];
-    if (tmp[9] != setup_mix2(load<reversed>(ctx[41]))) return false;
+	tmp[9] = tmp[3] ^ tmp[8];
+	if (tmp[9] != setup_mix2(load<reversed>(ctx[41]))) return false;
 
-    tmp[10] = tmp[4] ^ tmp[9];
-    if (tmp[10] != setup_mix2(load<reversed>(ctx[42]))) return false;
+	tmp[10] = tmp[4] ^ tmp[9];
+	if (tmp[10] != setup_mix2(load<reversed>(ctx[42]))) return false;
 
-    tmp[11] = tmp[5] ^ tmp[10];
-    if (tmp[11] != setup_mix2(load<reversed>(ctx[43]))) return false;
+	tmp[11] = tmp[5] ^ tmp[10];
+	if (tmp[11] != setup_mix2(load<reversed>(ctx[43]))) return false;
 
-    for (int k = 0; k < 6; k++)
-    {
-        tmp[k] = tmp[6 + k];
-    }
+	for (int k = 0; k < 6; k++)
+	{
+		tmp[k] = tmp[6 + k];
+	}
 
-    //
+	//
 
-    tmp[6] = tmp[0] ^ setup_mix(tmp[5]) ^ rcon[1];
-    if (tmp[6] != setup_mix2(load<reversed>(ctx[36]))) return false;
+	tmp[6] = tmp[0] ^ setup_mix(tmp[5]) ^ rcon[1];
+	if (tmp[6] != setup_mix2(load<reversed>(ctx[36]))) return false;
 
-    tmp[7] = tmp[1] ^ tmp[6];
-    if (tmp[7] != setup_mix2(load<reversed>(ctx[37]))) return false;
+	tmp[7] = tmp[1] ^ tmp[6];
+	if (tmp[7] != setup_mix2(load<reversed>(ctx[37]))) return false;
 
-    tmp[8] = tmp[2] ^ tmp[7];
-    if (tmp[8] != setup_mix2(load<reversed>(ctx[38]))) return false;
+	tmp[8] = tmp[2] ^ tmp[7];
+	if (tmp[8] != setup_mix2(load<reversed>(ctx[38]))) return false;
 
-    tmp[9] = tmp[3] ^ tmp[8];
-    if (tmp[9] != setup_mix2(load<reversed>(ctx[39]))) return false;
+	tmp[9] = tmp[3] ^ tmp[8];
+	if (tmp[9] != setup_mix2(load<reversed>(ctx[39]))) return false;
 
-    //
+	//
 
-    tmp[10] = tmp[4] ^ tmp[9];
-    if (tmp[10] != setup_mix2(load<reversed>(ctx[32]))) return false;
+	tmp[10] = tmp[4] ^ tmp[9];
+	if (tmp[10] != setup_mix2(load<reversed>(ctx[32]))) return false;
 
-    tmp[11] = tmp[5] ^ tmp[10];
-    if (tmp[11] != setup_mix2(load<reversed>(ctx[33]))) return false;
+	tmp[11] = tmp[5] ^ tmp[10];
+	if (tmp[11] != setup_mix2(load<reversed>(ctx[33]))) return false;
 
-    for (int k = 0; k < 6; k++)
-    {
-        tmp[k] = tmp[6 + k];
-    }
+	for (int k = 0; k < 6; k++)
+	{
+		tmp[k] = tmp[6 + k];
+	}
 
-    tmp[6] = tmp[0] ^ setup_mix(tmp[5]) ^ rcon[2];
-    if (tmp[6] != setup_mix2(load<reversed>(ctx[34]))) return false;
+	tmp[6] = tmp[0] ^ setup_mix(tmp[5]) ^ rcon[2];
+	if (tmp[6] != setup_mix2(load<reversed>(ctx[34]))) return false;
 
-    tmp[7] = tmp[1] ^ tmp[6];
-    if (tmp[7] != setup_mix2(load<reversed>(ctx[35]))) return false;
+	tmp[7] = tmp[1] ^ tmp[6];
+	if (tmp[7] != setup_mix2(load<reversed>(ctx[35]))) return false;
 
-    //
+	//
 
-    tmp[8] = tmp[2] ^ tmp[7];
-    if (tmp[8] != setup_mix2(load<reversed>(ctx[28]))) return false;
+	tmp[8] = tmp[2] ^ tmp[7];
+	if (tmp[8] != setup_mix2(load<reversed>(ctx[28]))) return false;
 
-    tmp[9] = tmp[3] ^ tmp[8];
-    if (tmp[9] != setup_mix2(load<reversed>(ctx[29]))) return false;
+	tmp[9] = tmp[3] ^ tmp[8];
+	if (tmp[9] != setup_mix2(load<reversed>(ctx[29]))) return false;
 
-    tmp[10] = tmp[4] ^ tmp[9];
-    if (tmp[10] != setup_mix2(load<reversed>(ctx[30]))) return false;
+	tmp[10] = tmp[4] ^ tmp[9];
+	if (tmp[10] != setup_mix2(load<reversed>(ctx[30]))) return false;
 
-    tmp[11] = tmp[5] ^ tmp[10];
-    if (tmp[11] != setup_mix2(load<reversed>(ctx[31]))) return false;
+	tmp[11] = tmp[5] ^ tmp[10];
+	if (tmp[11] != setup_mix2(load<reversed>(ctx[31]))) return false;
 
-    for (int k = 0; k < 6; k++)
-    {
-        tmp[k] = tmp[6 + k];
-    }
+	for (int k = 0; k < 6; k++)
+	{
+		tmp[k] = tmp[6 + k];
+	}
 
-    //
+	//
 
-    tmp[6] = tmp[0] ^ setup_mix(tmp[5]) ^ rcon[3];
-    if (tmp[6] != setup_mix2(load<reversed>(ctx[24]))) return false;
+	tmp[6] = tmp[0] ^ setup_mix(tmp[5]) ^ rcon[3];
+	if (tmp[6] != setup_mix2(load<reversed>(ctx[24]))) return false;
 
-    tmp[7] = tmp[1] ^ tmp[6];
-    if (tmp[7] != setup_mix2(load<reversed>(ctx[25]))) return false;
+	tmp[7] = tmp[1] ^ tmp[6];
+	if (tmp[7] != setup_mix2(load<reversed>(ctx[25]))) return false;
 
-    tmp[8] = tmp[2] ^ tmp[7];
-    if (tmp[8] != setup_mix2(load<reversed>(ctx[26]))) return false;
+	tmp[8] = tmp[2] ^ tmp[7];
+	if (tmp[8] != setup_mix2(load<reversed>(ctx[26]))) return false;
 
-    tmp[9] = tmp[3] ^ tmp[8];
-    if (tmp[9] != setup_mix2(load<reversed>(ctx[27]))) return false;
+	tmp[9] = tmp[3] ^ tmp[8];
+	if (tmp[9] != setup_mix2(load<reversed>(ctx[27]))) return false;
 
-    //
+	//
 
-    tmp[10] = tmp[4] ^ tmp[9];
-    if (tmp[10] != setup_mix2(load<reversed>(ctx[20]))) return false;
+	tmp[10] = tmp[4] ^ tmp[9];
+	if (tmp[10] != setup_mix2(load<reversed>(ctx[20]))) return false;
 
-    tmp[11] = tmp[5] ^ tmp[10];
-    if (tmp[11] != setup_mix2(load<reversed>(ctx[21]))) return false;
+	tmp[11] = tmp[5] ^ tmp[10];
+	if (tmp[11] != setup_mix2(load<reversed>(ctx[21]))) return false;
 
-    for (int k = 0; k < 6; k++)
-    {
-        tmp[k] = tmp[6 + k];
-    }
+	for (int k = 0; k < 6; k++)
+	{
+		tmp[k] = tmp[6 + k];
+	}
 
-    tmp[6] = tmp[0] ^ setup_mix(tmp[5]) ^ rcon[4];
-    if (tmp[6] != setup_mix2(load<reversed>(ctx[22]))) return false;
+	tmp[6] = tmp[0] ^ setup_mix(tmp[5]) ^ rcon[4];
+	if (tmp[6] != setup_mix2(load<reversed>(ctx[22]))) return false;
 
-    tmp[7] = tmp[1] ^ tmp[6];
-    if (tmp[7] != setup_mix2(load<reversed>(ctx[23]))) return false;
+	tmp[7] = tmp[1] ^ tmp[6];
+	if (tmp[7] != setup_mix2(load<reversed>(ctx[23]))) return false;
 
-    //
+	//
 
-    tmp[8] = tmp[2] ^ tmp[7];
-    if (tmp[8] != setup_mix2(load<reversed>(ctx[16]))) return false;
+	tmp[8] = tmp[2] ^ tmp[7];
+	if (tmp[8] != setup_mix2(load<reversed>(ctx[16]))) return false;
 
-    tmp[9] = tmp[3] ^ tmp[8];
-    if (tmp[9] != setup_mix2(load<reversed>(ctx[17]))) return false;
+	tmp[9] = tmp[3] ^ tmp[8];
+	if (tmp[9] != setup_mix2(load<reversed>(ctx[17]))) return false;
 
-    tmp[10] = tmp[4] ^ tmp[9];
-    if (tmp[10] != setup_mix2(load<reversed>(ctx[18]))) return false;
+	tmp[10] = tmp[4] ^ tmp[9];
+	if (tmp[10] != setup_mix2(load<reversed>(ctx[18]))) return false;
 
-    tmp[11] = tmp[5] ^ tmp[10];
-    if (tmp[11] != setup_mix2(load<reversed>(ctx[19]))) return false;
+	tmp[11] = tmp[5] ^ tmp[10];
+	if (tmp[11] != setup_mix2(load<reversed>(ctx[19]))) return false;
 
-    for (int k = 0; k < 6; k++)
-    {
-        tmp[k] = tmp[6 + k];
-    }
+	for (int k = 0; k < 6; k++)
+	{
+		tmp[k] = tmp[6 + k];
+	}
 
-    //
+	//
 
-    tmp[6] = tmp[0] ^ setup_mix(tmp[5]) ^ rcon[5];
-    if (tmp[6] != setup_mix2(load<reversed>(ctx[12]))) return false;
+	tmp[6] = tmp[0] ^ setup_mix(tmp[5]) ^ rcon[5];
+	if (tmp[6] != setup_mix2(load<reversed>(ctx[12]))) return false;
 
-    tmp[7] = tmp[1] ^ tmp[6];
-    if (tmp[7] != setup_mix2(load<reversed>(ctx[13]))) return false;
+	tmp[7] = tmp[1] ^ tmp[6];
+	if (tmp[7] != setup_mix2(load<reversed>(ctx[13]))) return false;
 
-    tmp[8] = tmp[2] ^ tmp[7];
-    if (tmp[8] != setup_mix2(load<reversed>(ctx[14]))) return false;
+	tmp[8] = tmp[2] ^ tmp[7];
+	if (tmp[8] != setup_mix2(load<reversed>(ctx[14]))) return false;
 
-    tmp[9] = tmp[3] ^ tmp[8];
-    if (tmp[9] != setup_mix2(load<reversed>(ctx[15]))) return false;
+	tmp[9] = tmp[3] ^ tmp[8];
+	if (tmp[9] != setup_mix2(load<reversed>(ctx[15]))) return false;
 
-    //
+	//
 
-    tmp[10] = tmp[4] ^ tmp[9];
-    if (tmp[10] != setup_mix2(load<reversed>(ctx[8]))) return false;
+	tmp[10] = tmp[4] ^ tmp[9];
+	if (tmp[10] != setup_mix2(load<reversed>(ctx[8]))) return false;
 
-    tmp[11] = tmp[5] ^ tmp[10];
-    if (tmp[11] != setup_mix2(load<reversed>(ctx[9]))) return false;
+	tmp[11] = tmp[5] ^ tmp[10];
+	if (tmp[11] != setup_mix2(load<reversed>(ctx[9]))) return false;
 
-    for (int k = 0; k < 6; k++)
-    {
-        tmp[k] = tmp[6 + k];
-    }
+	for (int k = 0; k < 6; k++)
+	{
+		tmp[k] = tmp[6 + k];
+	}
 
-    tmp[6] = tmp[0] ^ setup_mix(tmp[5]) ^ rcon[6];
-    if (tmp[6] != setup_mix2(load<reversed>(ctx[10]))) return false;
+	tmp[6] = tmp[0] ^ setup_mix(tmp[5]) ^ rcon[6];
+	if (tmp[6] != setup_mix2(load<reversed>(ctx[10]))) return false;
 
-    tmp[7] = tmp[1] ^ tmp[6];
-    if (tmp[7] != setup_mix2(load<reversed>(ctx[11]))) return false;
+	tmp[7] = tmp[1] ^ tmp[6];
+	if (tmp[7] != setup_mix2(load<reversed>(ctx[11]))) return false;
 
-    //
+	//
 
-    tmp[8] = tmp[2] ^ tmp[7];
-    if (tmp[8] != setup_mix2(load<reversed>(ctx[4]))) return false;
+	tmp[8] = tmp[2] ^ tmp[7];
+	if (tmp[8] != setup_mix2(load<reversed>(ctx[4]))) return false;
 
-    tmp[9] = tmp[3] ^ tmp[8];
-    if (tmp[9] != setup_mix2(load<reversed>(ctx[5]))) return false;
+	tmp[9] = tmp[3] ^ tmp[8];
+	if (tmp[9] != setup_mix2(load<reversed>(ctx[5]))) return false;
 
-    tmp[10] = tmp[4] ^ tmp[9];
-    if (tmp[10] != setup_mix2(load<reversed>(ctx[6]))) return false;
+	tmp[10] = tmp[4] ^ tmp[9];
+	if (tmp[10] != setup_mix2(load<reversed>(ctx[6]))) return false;
 
-    tmp[11] = tmp[5] ^ tmp[10];
-    if (tmp[11] != setup_mix2(load<reversed>(ctx[7]))) return false;
+	tmp[11] = tmp[5] ^ tmp[10];
+	if (tmp[11] != setup_mix2(load<reversed>(ctx[7]))) return false;
 
-    for (int k = 0; k < 6; k++)
-    {
-        tmp[k] = tmp[6 + k];
-    }
+	for (int k = 0; k < 6; k++)
+	{
+		tmp[k] = tmp[6 + k];
+	}
 
-    //
+	//
 
-    tmp[6] = tmp[0] ^ setup_mix(tmp[5]) ^ rcon[7];
-    if (tmp[6] != load<reversed>(ctx[0])) return false;
+	tmp[6] = tmp[0] ^ setup_mix(tmp[5]) ^ rcon[7];
+	if (tmp[6] != load<reversed>(ctx[0])) return false;
 
-    tmp[7] = tmp[1] ^ tmp[6];
-    if (tmp[7] != load<reversed>(ctx[1])) return false;
+	tmp[7] = tmp[1] ^ tmp[6];
+	if (tmp[7] != load<reversed>(ctx[1])) return false;
 
-    tmp[8] = tmp[2] ^ tmp[7];
-    if (tmp[8] != load<reversed>(ctx[2])) return false;
+	tmp[8] = tmp[2] ^ tmp[7];
+	if (tmp[8] != load<reversed>(ctx[2])) return false;
 
-    tmp[9] = tmp[3] ^ tmp[8];
-    if (tmp[9] != load<reversed>(ctx[3])) return false;
+	tmp[9] = tmp[3] ^ tmp[8];
+	if (tmp[9] != load<reversed>(ctx[3])) return false;
 
-    store<false>(load<reversed>(ctx[48]), key + 0);
-    store<false>(load<reversed>(ctx[49]), key + 4);
-    store<false>(load<reversed>(ctx[50]), key + 8);
-    store<false>(load<reversed>(ctx[51]), key + 12);
-    store<false>(setup_mix2(load<reversed>(ctx[44])), key + 16);
-    store<false>(setup_mix2(load<reversed>(ctx[45])), key + 20);
+	store<false>(load<reversed>(ctx[48]), key + 0);
+	store<false>(load<reversed>(ctx[49]), key + 4);
+	store<false>(load<reversed>(ctx[50]), key + 8);
+	store<false>(load<reversed>(ctx[51]), key + 12);
+	store<false>(setup_mix2(load<reversed>(ctx[44])), key + 16);
+	store<false>(setup_mix2(load<reversed>(ctx[45])), key + 20);
 
-    return true;
+	return true;
 }
 
 template <bool reversed>
 static bool aes256_detect_decF(const uint32_t* ctx, uint8_t* key)
 {
-    const uint32_t* ptr = ctx;
+	const uint32_t* ptr = ctx;
 
-    uint32_t tmp[16];
-    tmp[0] = load<reversed>(ctx[0]);
-    tmp[1] = load<reversed>(ctx[1]);
-    tmp[2] = load<reversed>(ctx[2]);
-    tmp[3] = load<reversed>(ctx[3]);
-    tmp[4] = setup_mix2(load<reversed>(ctx[4]));
-    tmp[5] = setup_mix2(load<reversed>(ctx[5]));
-    tmp[6] = setup_mix2(load<reversed>(ctx[6]));
-    tmp[7] = setup_mix2(load<reversed>(ctx[7]));
+	uint32_t tmp[16];
+	tmp[0] = load<reversed>(ctx[0]);
+	tmp[1] = load<reversed>(ctx[1]);
+	tmp[2] = load<reversed>(ctx[2]);
+	tmp[3] = load<reversed>(ctx[3]);
+	tmp[4] = setup_mix2(load<reversed>(ctx[4]));
+	tmp[5] = setup_mix2(load<reversed>(ctx[5]));
+	tmp[6] = setup_mix2(load<reversed>(ctx[6]));
+	tmp[7] = setup_mix2(load<reversed>(ctx[7]));
 
-    for (int i = 0; ctx += 8, i < 6; i++)
-    {
-        tmp[8] = tmp[0] ^ setup_mix(tmp[7]) ^ rcon[i];
-        if (tmp[8] != setup_mix2(load<reversed>(ctx[0]))) return false;
+	for (int i = 0; ctx += 8, i < 6; i++)
+	{
+		tmp[8] = tmp[0] ^ setup_mix(tmp[7]) ^ rcon[i];
+		if (tmp[8] != setup_mix2(load<reversed>(ctx[0]))) return false;
 
-        tmp[9] = tmp[1] ^ tmp[8];
-        if (tmp[9] != setup_mix2(load<reversed>(ctx[1]))) return false;
+		tmp[9] = tmp[1] ^ tmp[8];
+		if (tmp[9] != setup_mix2(load<reversed>(ctx[1]))) return false;
 
-        tmp[10] = tmp[2] ^ tmp[9];
-        if (tmp[10] != setup_mix2(load<reversed>(ctx[2]))) return false;
+		tmp[10] = tmp[2] ^ tmp[9];
+		if (tmp[10] != setup_mix2(load<reversed>(ctx[2]))) return false;
 
-        tmp[11] = tmp[3] ^ tmp[10];
-        if (tmp[11] != setup_mix2(load<reversed>(ctx[3]))) return false;
+		tmp[11] = tmp[3] ^ tmp[10];
+		if (tmp[11] != setup_mix2(load<reversed>(ctx[3]))) return false;
 
-        tmp[12] = tmp[4] ^ setup_mix(rotr32(tmp[11], 8));
-        if (tmp[12] != setup_mix2(load<reversed>(ctx[4]))) return false;
+		tmp[12] = tmp[4] ^ setup_mix(rotr32(tmp[11], 8));
+		if (tmp[12] != setup_mix2(load<reversed>(ctx[4]))) return false;
 
-        tmp[13] = tmp[5] ^ tmp[12];
-        if (tmp[13] != setup_mix2(load<reversed>(ctx[5]))) return false;
+		tmp[13] = tmp[5] ^ tmp[12];
+		if (tmp[13] != setup_mix2(load<reversed>(ctx[5]))) return false;
 
-        tmp[14] = tmp[6] ^ tmp[13];
-        if (tmp[14] != setup_mix2(load<reversed>(ctx[6]))) return false;
+		tmp[14] = tmp[6] ^ tmp[13];
+		if (tmp[14] != setup_mix2(load<reversed>(ctx[6]))) return false;
 
-        tmp[15] = tmp[7] ^ tmp[14];
-        if (tmp[15] != setup_mix2(load<reversed>(ctx[7]))) return false;
+		tmp[15] = tmp[7] ^ tmp[14];
+		if (tmp[15] != setup_mix2(load<reversed>(ctx[7]))) return false;
 
-        for (int k = 0; k < 8; k++)
-        {
-            tmp[k] = tmp[8 + k];
-        }
-    }
+		for (int k = 0; k < 8; k++)
+		{
+			tmp[k] = tmp[8 + k];
+		}
+	}
 
-    tmp[8] = tmp[0] ^ setup_mix(tmp[7]) ^ rcon[6];
-    if (tmp[8] != load<reversed>(ctx[0])) return false;
+	tmp[8] = tmp[0] ^ setup_mix(tmp[7]) ^ rcon[6];
+	if (tmp[8] != load<reversed>(ctx[0])) return false;
 
-    tmp[9] = tmp[1] ^ tmp[8];
-    if (tmp[9] != load<reversed>(ctx[1])) return false;
+	tmp[9] = tmp[1] ^ tmp[8];
+	if (tmp[9] != load<reversed>(ctx[1])) return false;
 
-    tmp[10] = tmp[2] ^ tmp[9];
-    if (tmp[10] != load<reversed>(ctx[2])) return false;
+	tmp[10] = tmp[2] ^ tmp[9];
+	if (tmp[10] != load<reversed>(ctx[2])) return false;
 
-    tmp[11] = tmp[3] ^ tmp[10];
-    if (tmp[11] != load<reversed>(ctx[3])) return false;
+	tmp[11] = tmp[3] ^ tmp[10];
+	if (tmp[11] != load<reversed>(ctx[3])) return false;
 
-    store<false>(load<reversed>(ptr[0]), key + 0);
-    store<false>(load<reversed>(ptr[1]), key + 4);
-    store<false>(load<reversed>(ptr[2]), key + 8);
-    store<false>(load<reversed>(ptr[3]), key + 12);
-    store<false>(setup_mix2(load<reversed>(ptr[4])), key + 16);
-    store<false>(setup_mix2(load<reversed>(ptr[5])), key + 20);
-    store<false>(setup_mix2(load<reversed>(ptr[6])), key + 24);
-    store<false>(setup_mix2(load<reversed>(ptr[7])), key + 28);
+	store<false>(load<reversed>(ptr[0]), key + 0);
+	store<false>(load<reversed>(ptr[1]), key + 4);
+	store<false>(load<reversed>(ptr[2]), key + 8);
+	store<false>(load<reversed>(ptr[3]), key + 12);
+	store<false>(setup_mix2(load<reversed>(ptr[4])), key + 16);
+	store<false>(setup_mix2(load<reversed>(ptr[5])), key + 20);
+	store<false>(setup_mix2(load<reversed>(ptr[6])), key + 24);
+	store<false>(setup_mix2(load<reversed>(ptr[7])), key + 28);
 
-    return true;
+	return true;
 }
 
 template <bool reversed>
 static bool aes256_detect_decB(const uint32_t* ctx, uint8_t* key)
 {
-    uint32_t tmp[16];
-    tmp[0] = load<reversed>(ctx[56]);
-    tmp[1] = load<reversed>(ctx[57]);
-    tmp[2] = load<reversed>(ctx[58]);
-    tmp[3] = load<reversed>(ctx[59]);
-    tmp[4] = setup_mix2(load<reversed>(ctx[52]));
-    tmp[5] = setup_mix2(load<reversed>(ctx[53]));
-    tmp[6] = setup_mix2(load<reversed>(ctx[54]));
-    tmp[7] = setup_mix2(load<reversed>(ctx[55]));
+	uint32_t tmp[16];
+	tmp[0] = load<reversed>(ctx[56]);
+	tmp[1] = load<reversed>(ctx[57]);
+	tmp[2] = load<reversed>(ctx[58]);
+	tmp[3] = load<reversed>(ctx[59]);
+	tmp[4] = setup_mix2(load<reversed>(ctx[52]));
+	tmp[5] = setup_mix2(load<reversed>(ctx[53]));
+	tmp[6] = setup_mix2(load<reversed>(ctx[54]));
+	tmp[7] = setup_mix2(load<reversed>(ctx[55]));
 
-    for (int i = 0; i < 6; i++)
-    {
-        tmp[8] = tmp[0] ^ setup_mix(tmp[7]) ^ rcon[i];
-        if (tmp[8] != setup_mix2(load<reversed>(ctx[48 - 8 * i]))) return false;
+	for (int i = 0; i < 6; i++)
+	{
+		tmp[8] = tmp[0] ^ setup_mix(tmp[7]) ^ rcon[i];
+		if (tmp[8] != setup_mix2(load<reversed>(ctx[48 - 8 * i]))) return false;
 
-        tmp[9] = tmp[1] ^ tmp[8];
-        if (tmp[9] != setup_mix2(load<reversed>(ctx[49 - 8 * i]))) return false;
+		tmp[9] = tmp[1] ^ tmp[8];
+		if (tmp[9] != setup_mix2(load<reversed>(ctx[49 - 8 * i]))) return false;
 
-        tmp[10] = tmp[2] ^ tmp[9];
-        if (tmp[10] != setup_mix2(load<reversed>(ctx[50 - 8 * i]))) return false;
+		tmp[10] = tmp[2] ^ tmp[9];
+		if (tmp[10] != setup_mix2(load<reversed>(ctx[50 - 8 * i]))) return false;
 
-        tmp[11] = tmp[3] ^ tmp[10];
-        if (tmp[11] != setup_mix2(load<reversed>(ctx[51 - 8 * i]))) return false;
+		tmp[11] = tmp[3] ^ tmp[10];
+		if (tmp[11] != setup_mix2(load<reversed>(ctx[51 - 8 * i]))) return false;
 
-        tmp[12] = tmp[4] ^ setup_mix(rotr32(tmp[11], 8));
-        if (tmp[12] != setup_mix2(load<reversed>(ctx[44 - 8 * i]))) return false;
+		tmp[12] = tmp[4] ^ setup_mix(rotr32(tmp[11], 8));
+		if (tmp[12] != setup_mix2(load<reversed>(ctx[44 - 8 * i]))) return false;
 
-        tmp[13] = tmp[5] ^ tmp[12];
-        if (tmp[13] != setup_mix2(load<reversed>(ctx[45 - 8 * i]))) return false;
+		tmp[13] = tmp[5] ^ tmp[12];
+		if (tmp[13] != setup_mix2(load<reversed>(ctx[45 - 8 * i]))) return false;
 
-        tmp[14] = tmp[6] ^ tmp[13];
-        if (tmp[14] != setup_mix2(load<reversed>(ctx[46 - 8 * i]))) return false;
+		tmp[14] = tmp[6] ^ tmp[13];
+		if (tmp[14] != setup_mix2(load<reversed>(ctx[46 - 8 * i]))) return false;
 
-        tmp[15] = tmp[7] ^ tmp[14];
-        if (tmp[15] != setup_mix2(load<reversed>(ctx[47 - 8 * i]))) return false;
+		tmp[15] = tmp[7] ^ tmp[14];
+		if (tmp[15] != setup_mix2(load<reversed>(ctx[47 - 8 * i]))) return false;
 
-        for (int k = 0; k < 8; k++)
-        {
-            tmp[k] = tmp[8 + k];
-        }
-    }
+		for (int k = 0; k < 8; k++)
+		{
+			tmp[k] = tmp[8 + k];
+		}
+	}
 
-    tmp[8] = tmp[0] ^ setup_mix(tmp[7]) ^ rcon[6];
-    if (tmp[8] != load<reversed>(ctx[0])) return false;
+	tmp[8] = tmp[0] ^ setup_mix(tmp[7]) ^ rcon[6];
+	if (tmp[8] != load<reversed>(ctx[0])) return false;
 
-    tmp[9] = tmp[1] ^ tmp[8];
-    if (tmp[9] != load<reversed>(ctx[1])) return false;
+	tmp[9] = tmp[1] ^ tmp[8];
+	if (tmp[9] != load<reversed>(ctx[1])) return false;
 
-    tmp[10] = tmp[2] ^ tmp[9];
-    if (tmp[10] != load<reversed>(ctx[2])) return false;
+	tmp[10] = tmp[2] ^ tmp[9];
+	if (tmp[10] != load<reversed>(ctx[2])) return false;
 
-    tmp[11] = tmp[3] ^ tmp[10];
-    if (tmp[11] != load<reversed>(ctx[3])) return false;
+	tmp[11] = tmp[3] ^ tmp[10];
+	if (tmp[11] != load<reversed>(ctx[3])) return false;
 
-    store<false>(load<reversed>(ctx[56]), key + 0);
-    store<false>(load<reversed>(ctx[57]), key + 4);
-    store<false>(load<reversed>(ctx[58]), key + 8);
-    store<false>(load<reversed>(ctx[59]), key + 12);
-    store<false>(setup_mix2(load<reversed>(ctx[52])), key + 16);
-    store<false>(setup_mix2(load<reversed>(ctx[53])), key + 20);
-    store<false>(setup_mix2(load<reversed>(ctx[54])), key + 24);
-    store<false>(setup_mix2(load<reversed>(ctx[55])), key + 28);
+	store<false>(load<reversed>(ctx[56]), key + 0);
+	store<false>(load<reversed>(ctx[57]), key + 4);
+	store<false>(load<reversed>(ctx[58]), key + 8);
+	store<false>(load<reversed>(ctx[59]), key + 12);
+	store<false>(setup_mix2(load<reversed>(ctx[52])), key + 16);
+	store<false>(setup_mix2(load<reversed>(ctx[53])), key + 20);
+	store<false>(setup_mix2(load<reversed>(ctx[54])), key + 24);
+	store<false>(setup_mix2(load<reversed>(ctx[55])), key + 28);
 
-    return true;
+	return true;
 }
 
 template <bool reversed>
 static int aes_detect_dec(const uint32_t* ctx, uint8_t* key)
 {
-    if (aes128_detect_decF<reversed>(ctx, key) || aes128_detect_decB<reversed>(ctx, key))
-    {
-        return 16;
-    }
+	if (aes128_detect_decF<reversed>(ctx, key) || aes128_detect_decB<reversed>(ctx, key))
+	{
+		return 16;
+	}
 
-    if (aes192_detect_decF<reversed>(ctx, key) || aes192_detect_decB<reversed>(ctx, key))
-    {
-        return 24;
-    }
+	if (aes192_detect_decF<reversed>(ctx, key) || aes192_detect_decB<reversed>(ctx, key))
+	{
+		return 24;
+	}
 
-    if (aes256_detect_decF<reversed>(ctx, key) || aes256_detect_decB<reversed>(ctx, key))
-    {
-        return 32;
-    }
+	if (aes256_detect_decF<reversed>(ctx, key) || aes256_detect_decB<reversed>(ctx, key))
+	{
+		return 32;
+	}
 
-    return 0;
+	return 0;
 }
 
 static int aes_detect_dec(const uint32_t* ctx, uint8_t* key)
 {
-    if (int len = aes_detect_dec<true>(ctx, key))
-    {
-        return len;
-    }
+	if (int len = aes_detect_dec<true>(ctx, key))
+	{
+		return len;
+	}
 
-    if (int len = aes_detect_dec<false>(ctx, key))
-    {
-        return len;
-    }
+	if (int len = aes_detect_dec<false>(ctx, key))
+	{
+		return len;
+	}
 
-    return 0;
+	return 0;
 }
+
+#define BUFFER_SIZE (64 * 1024)
+
+class KeyFinder
+{
+	static std::mutex os_mtx;
+	static std::mutex fk_mtx;
+
+	enum KeyOp
+	{
+		ENCRYPT,
+		DECRYPT
+	};
+
+	struct FoundKey
+	{
+		void*   address;
+		uint8_t key[32];
+		KeyOp   key_op;
+		int     key_size;
+	};
+
+public:
+	static std::atomic<size_t> total;
+	static std::vector<FoundKey> found_keys;
+
+	double thread_time;
+
+	void operator()()
+	{
+		clock_t t0 = clock();
+		uint8_t buffer[BUFFER_SIZE];
+		size_t size = 0;
+		uint32_t avail = 0;
+		size_t region = 0;
+		size_t region_size = 0;
+		size_t addr = 0;
+		for (;;)
+		{
+			if (size == 0)
+			{
+				uint64_t next_size;
+				uint64_t next = KeyFinder::safe_process_next(&next_size);
+				if (next == 0)
+				{
+					break;
+				}
+
+				if (region + region_size != next)
+				{
+					avail = 0;
+				}
+
+				addr = region = next;
+				size = region_size = next_size;
+			}
+
+			uint32_t read = sizeof(buffer) - avail;
+			if (read > size) read = (uint32_t)size;
+
+			read = os_process_read(region, buffer + avail, read);
+			if (read == 0)
+			{
+				avail = 0;
+				size = 0;
+				continue;
+			}
+			KeyFinder::total += read;
+			region += read;
+			size -= read;
+			avail += read;
+
+
+			uint32_t offset = 0;
+			if (avail >= 60 * sizeof(uint32_t))
+			{
+				while (offset <= avail - 60 * sizeof(uint32_t))
+				{
+					FoundKey fk = {};
+					int len = aes_detect_enc((const uint32_t*)&buffer[offset], fk.key);
+					if (len != 0)
+					{
+						fk.key_op = ENCRYPT;
+						fk.address = reinterpret_cast<void*>(addr);
+						fk.key_size = len;
+						KeyFinder::safe_push_back(fk);
+
+						offset += 28 + len;
+						addr += 28 + len;
+					}
+					else
+					{
+						len = aes_detect_dec((const uint32_t*)&buffer[offset], fk.key);
+						if (len != 0)
+						{
+							fk.key_op = DECRYPT;
+							fk.address = reinterpret_cast<void*>(addr);
+							fk.key_size = len;
+							KeyFinder::safe_push_back(fk);
+
+							offset += 28 + len;
+							addr += 28 + len;
+						}
+						else
+						{
+							offset += 4;
+							addr += 4;
+						}
+					}
+				}
+
+				avail -= offset;
+			}
+
+			memmove(buffer, buffer + offset, avail);
+		}
+
+		clock_t t1 = clock();
+		thread_time = double(t1 - t0) / CLOCKS_PER_SEC;
+
+	}
+
+	static void PrintKeys()
+	{
+		std::sort(KeyFinder::found_keys.begin(), KeyFinder::found_keys.end(), KeyFinder::CompareKeyAddress);
+		for(auto fk : KeyFinder::found_keys)
+		{
+			if(fk.key_op == ENCRYPT)
+			{
+				printf("[%p] Found AES-%d encryption key: ", fk.address, fk.key_size * 8);
+			}
+			else
+			{
+				printf("[%p] Found AES-%d decryption key: ", fk.address, fk.key_size * 8);
+			}
+			for (int i = 0; i < fk.key_size; i++)
+			{
+				printf("%02x", fk.key[i]);
+			}
+			printf("\n");
+		}
+	}
+
+	static bool CompareKeyAddress(FoundKey k1, FoundKey k2)
+	{
+		return(k1.address < k2.address);
+	}
+
+	static uint64_t safe_process_next(uint64_t* size)
+	{
+		std::lock_guard<std::mutex> lock(KeyFinder::os_mtx);
+		return os_process_next(size);
+	}
+
+	static void safe_push_back(const FoundKey& fk)
+	{
+		std::lock_guard<std::mutex> lock(KeyFinder::fk_mtx);
+		found_keys.push_back(fk);
+	}
+};
+
+std::atomic<size_t> KeyFinder::total(0);
+std::vector<KeyFinder::FoundKey> KeyFinder::found_keys = {};
+std::mutex KeyFinder::os_mtx;
+std::mutex KeyFinder::fk_mtx;
+
 
 #include "aes-finder-test.h"
 
 static void find_keys(uint32_t pid)
 {
-    printf("Searching PID %u ...\n", pid);
+	printf("Searching PID %u ...\n", pid);
 
-    if (!os_process_begin(pid))
-    {
-        printf("Failed to open process\n");
-        return;
-    }
+	if (!os_process_begin(pid))
+	{
+		printf("Failed to open process\n");
+		return;
+	}
 
-    uint8_t buffer[64 * 1024];
-    uint32_t avail = 0;
+	clock_t t0 = clock();
 
-    uint64_t region = 0;
-    uint64_t region_size = 0;
-    uint64_t size = 0;
+	const size_t num_threads = std::thread::hardware_concurrency();
+	std::list<KeyFinder> key_finders(num_threads);
+	std::list<std::thread> threads;
 
-    uint64_t addr = 0;
+	auto it = key_finders.begin();
+	for(size_t i = 0; i < num_threads; ++i)
+	{
+		threads.emplace_back(std::thread(&KeyFinder::operator(), it));
+		++it;
+	}
 
-    clock_t t0 = clock();
-    uint64_t total = 0;
+	for (auto p = std::make_pair(key_finders.begin(), threads.begin()); p.first != key_finders.end() && p.second != threads.end(); ++p.first, ++p.second)
+	{
+		p.second->join();
+		//printf("Thread time : %f\n", p.first->thread_time);
+	}
+	KeyFinder::PrintKeys();
 
-    for (;;)
-    {
-        if (size == 0)
-        {
-            uint64_t next_size;
-            uint64_t next = os_process_next(&next_size);
-            if (next == 0)
-            {
-                break;
-            }
+	clock_t t1 = clock();
+	double time = double(t1 - t0) / CLOCKS_PER_SEC;
+	const double MB = 1024.0 * 1024.0;
+	printf("Processed %.2f MB, total time %.2fs, speed = %.2f MB/s\n", KeyFinder::total / MB, time, KeyFinder::total / MB / time);
 
-            if (region + region_size != next)
-            {
-                avail = 0;
-            }
-
-            addr = region = next;
-            size = region_size = next_size;
-        }
-
-        uint32_t read = sizeof(buffer)-avail;
-        if (read > size) read = (uint32_t)size;
-
-        read = os_process_read(region, buffer+avail, read);
-        if (read == 0)
-        {
-            avail = 0;
-            size = 0;
-            continue;
-        }
-        total += read;
-        region += read;
-        size -= read;
-        avail += read;
-
-        uint32_t offset = 0;
-        if (avail >= 60*sizeof(uint32_t))
-        {
-            while (offset <= avail - 60*sizeof(uint32_t))
-            {
-                uint8_t key[32];
-                if (int len = aes_detect_enc((const uint32_t*)&buffer[offset], key))
-                {
-                    printf("[%p] Found AES-%d encryption key: ", (void*)addr, len * 8);
-                    for (int i = 0; i < len; i++)
-                    {
-                        printf("%02x", key[i]);
-                    }
-                    printf("\n");
-
-                    offset += 28 + len;
-                    addr += 28 + len;
-                }
-                else if (int len = aes_detect_dec((const uint32_t*)&buffer[offset], key))
-                {
-                    printf("[%p] Found AES-%d decryption key: ", (void*)addr, len * 8);
-                    for (int i = 0; i < len; i++)
-                    {
-                        printf("%02x", key[i]);
-                    }
-                    printf("\n");
-
-                    offset += 28 + len;
-                    addr += 28 + len;
-                }
-                else
-                {
-                    offset += 4;
-                    addr += 4;
-                }
-            }
-
-            avail -= offset;
-        }
-
-        memmove(buffer, buffer + offset, avail);
-    }
-
-    clock_t t1 = clock();
-    double time = double(t1 - t0) / CLOCKS_PER_SEC;
-    const double MB = 1024.0 * 1024.0;
-    printf("Processed %.2f MB, speed = %.2f MB/s\n", total / MB, total / MB / time);
-
-    os_process_end();
+	os_process_end();
 }
 
 int main(int argc, char* argv[])
 {
-    if (argc != 2)
-    {
-        printf("Usage: aes-finder -pid | process-name\n");
-        return EXIT_FAILURE;
-    }
+	if (argc != 2)
+	{
+		printf("Usage: aes-finder -pid | process-name\n");
+		return EXIT_FAILURE;
+	}
 
-    self_test();
-    os_startup();
+	self_test();
+	os_startup();
 
-    if (argv[1][0] == '-')
-    {
-        uint32_t pid = atoi(argv[1] + 1);
-        find_keys(pid);
-    }
-    else
-    {
-        if (os_enum_start())
-        {
-            while (uint32_t pid = os_enum_next(argv[1]))
-            {
-                find_keys(pid);
-            }
-            os_enum_end();
-        }
-    }
+	if (argv[1][0] == '-')
+	{
+		uint32_t pid = atoi(argv[1] + 1);
+		find_keys(pid);
+	}
+	else
+	{
+		if (os_enum_start())
+		{
+			while (uint32_t pid = os_enum_next(argv[1]))
+			{
+				find_keys(pid);
+			}
+			os_enum_end();
+		}
+	}
 
-    printf("Done!\n");
+	printf("Done!\n");
 
-    return EXIT_SUCCESS;
+	return EXIT_SUCCESS;
 }

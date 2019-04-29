@@ -5,3 +5,7 @@ msvc2013/*.user
 msvc2013/Debug
 msvc2013/Release
 msvc2013/x64
+*.vsp
+*.psess
+.vs
+*.exe
