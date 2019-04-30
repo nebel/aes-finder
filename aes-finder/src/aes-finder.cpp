@@ -192,7 +192,7 @@ void storemix(uint32_t* dst, const uint32_t* src)
 }
 
 template <bool reversed>
-static bool aes128_detect_enc(const uint32_t* ctx, uint32_t* key)
+static bool AESFinder::aes128_detect_enc(const uint32_t* ctx, uint32_t* key)
 {
 	const uint32_t* ptr = ctx;
 
@@ -222,7 +222,7 @@ static bool aes128_detect_enc(const uint32_t* ctx, uint32_t* key)
 }
 
 template <bool reversed>
-static bool aes192_detect_enc(const uint32_t* ctx, uint32_t* key)
+static bool AESFinder::aes192_detect_enc(const uint32_t* ctx, uint32_t* key)
 {
 	const uint32_t* ptr = ctx;
 
@@ -265,7 +265,7 @@ static bool aes192_detect_enc(const uint32_t* ctx, uint32_t* key)
 }
 
 template <bool reversed>
-static bool aes256_detect_enc(const uint32_t* ctx, uint32_t* key)
+static bool AESFinder::aes256_detect_enc(const uint32_t* ctx, uint32_t* key)
 {
 	const uint32_t* ptr = ctx;
 
@@ -313,7 +313,7 @@ static bool aes256_detect_enc(const uint32_t* ctx, uint32_t* key)
 	return true;
 }
 
-static int aes_detect_enc(const uint32_t* ctx, uint32_t* key)
+static int AESFinder::aes_detect_enc(const uint32_t* ctx, uint32_t* key)
 {
 	if (aes128_detect_enc<true>(ctx, key) || aes128_detect_enc<false>(ctx, key))
 	{
@@ -332,7 +332,7 @@ static int aes_detect_enc(const uint32_t* ctx, uint32_t* key)
 }
 
 template <bool reversed>
-static bool aes128_detect_decF(const uint32_t* ctx, uint32_t* key)
+static bool AESFinder::aes128_detect_decF(const uint32_t* ctx, uint32_t* key)
 {
 	const uint32_t* ptr = ctx;
 
@@ -374,7 +374,7 @@ static bool aes128_detect_decF(const uint32_t* ctx, uint32_t* key)
 }
 
 template <bool reversed>
-static bool aes128_detect_decB(const uint32_t* ctx, uint32_t* key)
+static bool AESFinder::aes128_detect_decB(const uint32_t* ctx, uint32_t* key)
 {
 	uint32_t tmp[8];
 	load<reversed, 4>(tmp, ctx + 40);
@@ -414,7 +414,7 @@ static bool aes128_detect_decB(const uint32_t* ctx, uint32_t* key)
 }
 
 template <bool reversed>
-static bool aes192_detect_decF(const uint32_t* ctx, uint32_t* key)
+static bool AESFinder::aes192_detect_decF(const uint32_t* ctx, uint32_t* key)
 {
 	const uint32_t* ptr = ctx;
 
@@ -464,7 +464,7 @@ static bool aes192_detect_decF(const uint32_t* ctx, uint32_t* key)
 }
 
 template <bool reversed>
-static bool aes192_detect_decB(const uint32_t* ctx, uint32_t* key)
+static bool AESFinder::aes192_detect_decB(const uint32_t* ctx, uint32_t* key)
 {
 	uint32_t tmp[12];
 
@@ -652,7 +652,7 @@ static bool aes192_detect_decB(const uint32_t* ctx, uint32_t* key)
 }
 
 template <bool reversed>
-static bool aes256_detect_decF(const uint32_t* ctx, uint32_t* key)
+static bool AESFinder::aes256_detect_decF(const uint32_t* ctx, uint32_t* key)
 {
 	const uint32_t* ptr = ctx;
 
@@ -708,7 +708,7 @@ static bool aes256_detect_decF(const uint32_t* ctx, uint32_t* key)
 }
 
 template <bool reversed>
-static bool aes256_detect_decB(const uint32_t* ctx, uint32_t* key)
+static bool AESFinder::aes256_detect_decB(const uint32_t* ctx, uint32_t* key)
 {
 	uint32_t tmp[16];
 	load<reversed, 4>(tmp, ctx + 56);
@@ -762,7 +762,7 @@ static bool aes256_detect_decB(const uint32_t* ctx, uint32_t* key)
 }
 
 template <bool reversed>
-static int aes_detect_dec(const uint32_t* ctx, uint32_t* key)
+static int AESFinder::aes_detect_dec(const uint32_t* ctx, uint32_t* key)
 {
 	if (aes128_detect_decF<reversed>(ctx, key) || aes128_detect_decB<reversed>(ctx, key))
 	{
@@ -782,7 +782,7 @@ static int aes_detect_dec(const uint32_t* ctx, uint32_t* key)
 	return 0;
 }
 
-static int aes_detect_dec(const uint32_t* ctx, uint32_t* key)
+static int AESFinder::aes_detect_dec(const uint32_t* ctx, uint32_t* key)
 {
 	if (const int len = aes_detect_dec<true>(ctx, key))
 	{

@@ -1,5 +1,8 @@
 #pragma once
 
+#include <atomic>
+#include <vector>
+#include <mutex>
 #include <algorithm>
 
 #include "aes-finder_os.hpp"
@@ -9,7 +12,40 @@
 
 namespace AESFinder
 {
-
+	
+	template <bool>
+	static bool aes128_detect_enc(const uint32_t*, uint32_t*);
+	
+	template <bool>
+	static bool aes192_detect_enc(const uint32_t*, uint32_t*);
+	
+	template <bool>
+	static bool aes256_detect_enc(const uint32_t*, uint32_t*);
+	
+	template <bool>
+	static bool aes128_detect_decF(const uint32_t*, uint32_t*);
+	
+	template <bool>
+	static bool aes128_detect_decB(const uint32_t*, uint32_t*);
+	
+	template <bool>
+	static bool aes192_detect_decF(const uint32_t*, uint32_t*);
+	
+	template <bool>
+	static bool aes192_detect_decB(const uint32_t*, uint32_t*);
+	
+	template <bool>
+	static bool aes256_detect_decF(const uint32_t*, uint32_t*);
+	
+	template <bool>
+	static bool aes256_detect_decB(const uint32_t*, uint32_t*);
+	
+	template <bool>
+	static int aes_detect_dec(const uint32_t*, uint32_t*);
+	
+	static int aes_detect_enc(const uint32_t*, uint32_t*);
+	static int aes_detect_dec(const uint32_t*, uint32_t*);
+	
 	struct FoundKey
 	{
 		enum KeyOp

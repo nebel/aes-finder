@@ -1,8 +1,8 @@
 #pragma once
 
-#if defined(WIN32) || defined(_WIN32)
+#if (defined(WIN32) || defined(_WIN32))
 
-#define OS_WINDOWS
+#  define OS_WINDOWS
 
 #  include <cstdint>
 
@@ -23,11 +23,19 @@ static MEMORY_BASIC_INFORMATION os_process_info;
 
 #elif defined(__linux__)
 
-#define OS_LINUX
+#  define OS_LINUX
+
+#include <cstdio>
+#include <cstdint>
+#include <cstring>
+#include <cstdlib>
 
 #include <sys/uio.h>
 #include <dirent.h>
 #include <unistd.h>
+#include <errno.h>
+
+static char os_self_name[16];
 
 static DIR* os_dir;
 
@@ -101,32 +109,32 @@ static void os_startup()
 		return Process32First(os_snapshot, &os_entry);
 #elif defined(OS_LINUX)
 		os_dir = opendir("/proc");
-		return !!os_dir;
+		return (os_dir != nullptr);
 #elif defined(OS_APPLE)
 		static const int name[] = {CTL_KERN, KERN_PROC, KERN_PROC_ALL, 0};
 
 		size_t length;
 
-		os_processes = NULL;
+		os_processes = nullptr;
 
 		int err;
 		bool done = false;
 		do
 		{
-			err = sysctl((int*)name, (sizeof(name) / sizeof(*name)) - 1, NULL, &length, NULL, 0);
+			err = sysctl((int*)name, (sizeof(name) / sizeof(*name)) - 1, nullptr, &length, nullptr, 0);
 			if (err == -1)
 			{
 				break;
 			}
 
 			os_processes = (kinfo_proc*)realloc(os_processes, length);
-			if (os_processes == NULL)
+			if (os_processes == nullptr)
 			{
 				err = -1;
 				break;
 			}
 
-			err = sysctl((int*)name, (sizeof(name) / sizeof(*name)) - 1, os_processes, &length, NULL, 0);
+			err = sysctl((int*)name, (sizeof(name) / sizeof(*name)) - 1, os_processes, &length, nullptr, 0);
 			if (err == -1 && errno == ENOMEM)
 			{
 				continue;
@@ -173,12 +181,12 @@ static void os_startup()
 
 		return 0;
 #elif defined(OS_LINUX)
-		ssize_t name_len = strlen(name);
+		size_t name_len = strlen(name);
 
 		for (;;)
 		{
 			struct dirent* de = readdir(os_dir);
-			if (de == NULL)
+			if (de == nullptr)
 			{
 				return 0;
 			}
@@ -203,7 +211,7 @@ static void os_startup()
 				continue;
 			}
 
-			return atoi(de->d_name);
+			return uint32_t(strtoul(de->d_name, nullptr, 0));
 		}
 #elif defined(OS_APPLE)
 		while (os_process_idx < os_process_count)
@@ -264,7 +272,7 @@ static void os_startup()
 		snprintf(path, sizeof(path), "/proc/%u/maps", pid);
 
 		os_maps = fopen(path, "r");
-		if (os_maps == NULL)
+		if (os_maps == nullptr)
 		{
 			return false;
 		}
@@ -272,7 +280,7 @@ static void os_startup()
 		// check if we are allowed to read process memory
 		{
 			char buffer;
-			struct iovec in = {0, 1};
+			struct iovec in = {nullptr, 1};
 			struct iovec out = {&buffer, 1};
 
 			process_vm_readv(pid, &out, 1, &in, 1, 0);
@@ -324,7 +332,7 @@ static void os_startup()
 		for (;;)
 		{
 			char line[1024];
-			if (fgets(line, sizeof(line), os_maps) == NULL)
+			if (fgets(line, sizeof(line), os_maps) == nullptr)
 			{
 				return 0;
 			}
@@ -332,7 +340,7 @@ static void os_startup()
 			size_t start;
 			size_t end;
 			char flag;
-			if (sscanf(line, "%llx-%llx %c", &start, &end, &flag) != 3)
+			if (sscanf(line, "%zx-%zx %c", &start, &end, &flag) != 3)
 			{
 				continue;
 			}
@@ -387,7 +395,7 @@ static void os_startup()
 
 		ssize_t read = process_vm_readv(os_process_pid, &out, 1, &in, 1, 0);
 
-		return read < 0 ? 0 : read;
+		return read < 0 ? 0 : size_t(read);
 #elif defined(OS_APPLE)
 		if (vm_read_overwrite(os_process_task, addr, size, (vm_address_t)buffer, &size) != KERN_SUCCESS)
 		{

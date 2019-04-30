@@ -11,12 +11,15 @@ add_executable(aes-finder
 		src/aes-finder_os.hpp
 		src/aes-finder-test.hpp
 		)
+
 # Preprocessor definitions
-target_compile_definitions(aes-finder PRIVATE
-		$<$<CONFIG:Debug>:NOMINMAX;WIN32;_DEBUG;_CONSOLE;_LIB>
-		$<$<CONFIG:Profile>:NOMINMAX;WIN32;NDEBUG;_CONSOLE;_LIB>
-		$<$<CONFIG:Release>:NOMINMAX;WIN32;NDEBUG;_CONSOLE;_LIB>
-		)
+if (MSVC)
+	target_compile_definitions(aes-finder PRIVATE
+			$<$<CONFIG:Debug>:NOMINMAX;WIN32;_DEBUG;_CONSOLE;_LIB>
+			$<$<CONFIG:Profile>:NOMINMAX;WIN32;NDEBUG;_CONSOLE;_LIB>
+			$<$<CONFIG:Release>:NOMINMAX;WIN32;NDEBUG;_CONSOLE;_LIB>
+			)
+endif ()
 
 # Minimal rebuild
 if (MSVC)
@@ -32,4 +35,9 @@ if (MSVC)
 	target_compile_options(aes-finder PRIVATE
 			""
 			)
+endif ()
+
+# Linker flags
+if (UNIX)
+	TARGET_LINK_LIBRARIES(aes-finder pthread)
 endif ()
