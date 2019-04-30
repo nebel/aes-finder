@@ -12,3 +12,4 @@
 aes-finder
 /aes-finder/Bin
 /aes-finder/Build
+**/cmake-build-*
