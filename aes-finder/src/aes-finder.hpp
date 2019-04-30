@@ -129,6 +129,46 @@ namespace AESFinder
 
 		void operator()(std::atomic<size_t>* total_size, FoundKeyVector* found_keys);
 
+		static void find_keys(uint32_t pid)
+		{
+			printf("Searching PID %u ...\n", pid);
+
+			if (!os_process_begin(pid))
+			{
+				printf("Failed to open process\n");
+				return;
+			}
+
+			const auto t0 = std::chrono::steady_clock::now();
+
+			std::atomic<size_t> total_size(0);
+			FoundKeyVector found_keys;
+
+			const size_t num_threads = std::thread::hardware_concurrency();
+			std::list<KeyFinder> key_finders(num_threads);
+			std::list<std::thread> threads;
+
+			auto it = key_finders.begin();
+			for (size_t i = 0; i < num_threads; i++, ++it)
+			{
+				threads.emplace_back(std::thread(&KeyFinder::operator(), it, &total_size, &found_keys));
+			}
+
+			for (auto p = std::make_pair(key_finders.begin(), threads.begin()); p.first != key_finders.end() && p.second != threads.end(); ++p.first, ++p.second)
+			{
+				p.second->join();
+				//printf("Thread time : %f\n", p.first->thread_time);
+			}
+			found_keys.PrintKeys();
+
+			const auto t1 = std::chrono::steady_clock::now();
+			std::chrono::duration<double> time = t1 - t0;
+			const double MB = 1024.0 * 1024.0;
+			printf("Processed %.2f MB, total time %.2fs, speed = %.2f MB/s\n", total_size / MB, time.count(), total_size / MB / time.count());
+
+			os_process_end();
+		}
+
 		static inline size_t safe_process_next(size_t& size)
 		{
 			std::lock_guard<std::mutex> lock(KeyFinder::mtx);
