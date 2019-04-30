@@ -11,3 +11,5 @@ msvc2013/x64
 *.exe
 **/Win32
 **/x64
+.vscode
+aes-finder

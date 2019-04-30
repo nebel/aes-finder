@@ -803,7 +803,7 @@ static int aes_detect_dec(const uint32_t* ctx, uint32_t* key)
 
 void KeyFinder::operator()(std::atomic<size_t>* total_size, FoundKeyVector* found_keys)
 {
-	const clock_t t0 = clock();
+	auto t0 = std::chrono::steady_clock::now();
 	size_t size = 0;
 	size_t avail = 0;
 	size_t region = 0;
@@ -889,8 +889,8 @@ void KeyFinder::operator()(std::atomic<size_t>* total_size, FoundKeyVector* foun
 		memmove(buffer, buffer + offset, avail);
 	}
 
-	const clock_t t1 = clock();
-	thread_time = double(t1 - t0) / CLOCKS_PER_SEC;
+	auto t1 = std::chrono::steady_clock::now();
+	thread_time = t1 - t0;
 
 }
 
@@ -907,7 +907,7 @@ static void find_keys(uint32_t pid)
 		return;
 	}
 
-	const clock_t t0 = clock();
+	auto t0 = std::chrono::steady_clock::now();
 
 	std::atomic<size_t> total_size(0);
 	FoundKeyVector found_keys;
@@ -929,10 +929,10 @@ static void find_keys(uint32_t pid)
 	}
 	found_keys.PrintKeys();
 
-	const clock_t t1 = clock();
-	const double time = double(t1 - t0) / CLOCKS_PER_SEC;
+	auto t1 = std::chrono::steady_clock::now();
+	std::chrono::duration<double> time = t1 - t0;
 	const double MB = 1024.0 * 1024.0;
-	printf("Processed %.2f MB, total time %.2fs, speed = %.2f MB/s\n", total_size / MB, time, total_size / MB / time);
+	printf("Processed %.2f MB, total time %.2fs, speed = %.2f MB/s\n", total_size / MB, time.count(), total_size / MB / time.count());
 
 	os_process_end();
 }

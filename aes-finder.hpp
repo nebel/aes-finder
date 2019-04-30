@@ -84,7 +84,7 @@ namespace AESFinder
 	public:
 		KeyFinder()
 		{
-			thread_time = 0.0;
+			thread_time = std::chrono::duration<double>(0.0);
 			buffer = new uint8_t[BUFFER_SIZE];
 		}
 
@@ -98,7 +98,7 @@ namespace AESFinder
 			delete(buffer);
 		}
 
-		double thread_time;
+		std::chrono::duration<double> thread_time;
 
 		void operator()(std::atomic<size_t>* total_size, FoundKeyVector* found_keys);
 
