@@ -1,14 +1,13 @@
-#include <stdint.h>
-#include <stdlib.h>
-#include <string.h>
-#include <stdio.h>
-#include <time.h>
+#include <cstdint>
+#include <cstdlib>
+#include <cstring>
+#include <cstdio>
+#include <ctime>
 #include <vector>
 #include <thread>
 #include <mutex>
 #include <atomic>
 #include <list>
-#include <algorithm>
 #include "aes-finder.hpp"
 
 using namespace AESFinder;
@@ -41,10 +40,8 @@ static uint32_t _rotr(uint32_t x, int n)
 #error Unknown OS!
 #endif
 
-std::atomic<size_t> KeyFinder::total(0);
-std::vector<KeyFinder::FoundKey> KeyFinder::found_keys = {};
-std::mutex KeyFinder::os_mtx;
-std::mutex KeyFinder::fk_mtx;
+std::mutex FoundKeyVector::mtx;
+std::mutex KeyFinder::mtx;
 
 static const uint32_t rcon[] = {
     0x01000000, 0x02000000, 0x04000000, 0x08000000,
@@ -797,22 +794,16 @@ static int aes_detect_dec(const uint32_t* ctx, uint32_t* key)
 
 static int aes_detect_dec(const uint32_t* ctx, uint32_t* key)
 {
-	if (int len = aes_detect_dec<true>(ctx, key))
+	if (const int len = aes_detect_dec<true>(ctx, key))
 	{
 		return len;
 	}
-
-	if (int len = aes_detect_dec<false>(ctx, key))
-	{
-		return len;
-	}
-
-	return 0;
+	return aes_detect_dec<false>(ctx, key);
 }
 
-void KeyFinder::operator()()
+void KeyFinder::operator()(std::atomic<size_t>* total_size, FoundKeyVector* found_keys)
 {
-	clock_t t0 = clock();
+	const clock_t t0 = clock();
 	size_t size = 0;
 	size_t avail = 0;
 	size_t region = 0;
@@ -823,7 +814,7 @@ void KeyFinder::operator()()
 		if (size == 0)
 		{
 			size_t next_size;
-			size_t next = KeyFinder::safe_process_next(next_size);
+			const size_t next = KeyFinder::safe_process_next(next_size);
 			if (next == 0)
 			{
 				break;
@@ -848,7 +839,7 @@ void KeyFinder::operator()()
 			size = 0;
 			continue;
 		}
-		KeyFinder::total += read;
+		*total_size += read;
 		region += read;
 		size -= read;
 		avail += read;
@@ -863,10 +854,10 @@ void KeyFinder::operator()()
 				int len = aes_detect_enc(reinterpret_cast<const uint32_t*>(buffer + offset), reinterpret_cast<uint32_t*>(fk.key));
 				if (len != 0)
 				{
-					fk.key_op = ENCRYPT;
+					fk.key_op = FoundKey::ENCRYPT;
 					fk.address = reinterpret_cast<void*>(addr);
 					fk.key_size = len;
-					KeyFinder::safe_push_back(fk);
+					found_keys->safe_emplace_back(fk);
 
 					offset += 28 + len;
 					addr += 28 + len;
@@ -876,10 +867,10 @@ void KeyFinder::operator()()
 					len = aes_detect_dec(reinterpret_cast<const uint32_t*>(buffer + offset), reinterpret_cast<uint32_t*>(fk.key));
 					if (len != 0)
 					{
-						fk.key_op = DECRYPT;
+						fk.key_op = FoundKey::DECRYPT;
 						fk.address = reinterpret_cast<void*>(addr);
 						fk.key_size = len;
-						KeyFinder::safe_push_back(fk);
+						found_keys->safe_emplace_back(fk);
 
 						offset += 28 + len;
 						addr += 28 + len;
@@ -898,31 +889,9 @@ void KeyFinder::operator()()
 		memmove(buffer, buffer + offset, avail);
 	}
 
-	clock_t t1 = clock();
+	const clock_t t1 = clock();
 	thread_time = double(t1 - t0) / CLOCKS_PER_SEC;
 
-}
-
-
-void KeyFinder::PrintKeys()
-{
-	std::sort(KeyFinder::found_keys.begin(), KeyFinder::found_keys.end(), KeyFinder::CompareKeyAddress);
-	for (auto fk : KeyFinder::found_keys)
-	{
-		if (fk.key_op == ENCRYPT)
-		{
-			printf("[%p] Found AES-%d encryption key: ", fk.address, fk.key_size * 8);
-		}
-		else
-		{
-			printf("[%p] Found AES-%d decryption key: ", fk.address, fk.key_size * 8);
-		}
-		for (int i = 0; i < fk.key_size; i++)
-		{
-			printf("%02x", fk.key[i]);
-		}
-		printf("\n");
-	}
 }
 
 
@@ -938,17 +907,19 @@ static void find_keys(uint32_t pid)
 		return;
 	}
 
-	clock_t t0 = clock();
+	const clock_t t0 = clock();
+
+	std::atomic<size_t> total_size(0);
+	FoundKeyVector found_keys;
 
 	const size_t num_threads = std::thread::hardware_concurrency();
 	std::list<KeyFinder> key_finders(num_threads);
 	std::list<std::thread> threads;
 
 	auto it = key_finders.begin();
-	for(size_t i = 0; i < num_threads; ++i)
+	for(size_t i = 0; i < num_threads; i++, ++it)
 	{
-		threads.emplace_back(std::thread(&KeyFinder::operator(), it));
-		++it;
+		threads.emplace_back(std::thread(&KeyFinder::operator(), it, &total_size, &found_keys));
 	}
 
 	for (auto p = std::make_pair(key_finders.begin(), threads.begin()); p.first != key_finders.end() && p.second != threads.end(); ++p.first, ++p.second)
@@ -956,12 +927,12 @@ static void find_keys(uint32_t pid)
 		p.second->join();
 		//printf("Thread time : %f\n", p.first->thread_time);
 	}
-	KeyFinder::PrintKeys();
+	found_keys.PrintKeys();
 
-	clock_t t1 = clock();
-	double time = double(t1 - t0) / CLOCKS_PER_SEC;
+	const clock_t t1 = clock();
+	const double time = double(t1 - t0) / CLOCKS_PER_SEC;
 	const double MB = 1024.0 * 1024.0;
-	printf("Processed %.2f MB, total time %.2fs, speed = %.2f MB/s\n", KeyFinder::total / MB, time, KeyFinder::total / MB / time);
+	printf("Processed %.2f MB, total time %.2fs, speed = %.2f MB/s\n", total_size / MB, time, total_size / MB / time);
 
 	os_process_end();
 }

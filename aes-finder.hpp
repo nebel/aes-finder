@@ -1,5 +1,7 @@
 #pragma once
 
+#include <algorithm>
+
 #if defined(WIN32)
 #include "os_windows.h"
 #elif defined(__linux__)
@@ -15,24 +17,67 @@
 
 namespace AESFinder
 {
-	class KeyFinder
-	{
-		static std::mutex os_mtx;
-		static std::mutex fk_mtx;
 
+	struct FoundKey
+	{
 		enum KeyOp
 		{
 			ENCRYPT,
 			DECRYPT
 		};
 
-		struct FoundKey
+		void*   address;
+		uint8_t key[32];
+		KeyOp   key_op;
+		int     key_size;
+	};
+
+	class FoundKeyVector : std::vector<FoundKey>
+	{
+		static std::mutex mtx;
+
+		static inline bool CompareKeyAddress(const FoundKey& k1, const FoundKey& k2)
 		{
-			void*   address;
-			uint8_t key[32];
-			KeyOp   key_op;
-			int     key_size;
-		};
+			return(k1.address < k2.address);
+		}
+
+	public:
+
+		void PrintKeys()
+		{
+			std::sort(this->begin(), this->end(), CompareKeyAddress);
+			for (auto fk : *this)
+			{
+				
+				if (fk.key_op == FoundKey::ENCRYPT)
+				{
+					printf("[%p] Found AES-%d encryption key: ", fk.address, fk.key_size * 8);
+				}
+				else
+				{
+					printf("[%p] Found AES-%d decryption key: ", fk.address, fk.key_size * 8);
+				}
+				for (int i = 0; i < fk.key_size; i++)
+				{
+					printf("%02x", fk.key[i]);
+				}
+				printf("\n");
+			}
+		}
+
+		void safe_emplace_back(const FoundKey& fk)
+		{
+			std::lock_guard<std::mutex> lock(FoundKeyVector::mtx);
+			this->emplace_back(fk);
+		}
+
+	};
+
+
+
+	class KeyFinder
+	{
+		static std::mutex mtx;
 
 		uint8_t* buffer;
 
@@ -43,37 +88,28 @@ namespace AESFinder
 			buffer = new uint8_t[BUFFER_SIZE];
 		}
 
+		KeyFinder(const KeyFinder&) = delete;
+		KeyFinder& operator=(const KeyFinder&) = delete;
+		KeyFinder(KeyFinder&&) = delete;
+		KeyFinder&& operator=(KeyFinder&&) = delete;
+
 		~KeyFinder()
 		{
 			delete(buffer);
 		}
 
-		static std::atomic<size_t> total;
-		static std::vector<FoundKey> found_keys;
-
 		double thread_time;
 
-		void operator()();
-
-		static inline void PrintKeys();
-
-		static inline bool CompareKeyAddress(FoundKey k1, FoundKey k2)
-		{
-			return(k1.address < k2.address);
-		}
+		void operator()(std::atomic<size_t>* total_size, FoundKeyVector* found_keys);
 
 		static inline size_t safe_process_next(size_t& size)
 		{
-			std::lock_guard<std::mutex> lock(KeyFinder::os_mtx);
+			std::lock_guard<std::mutex> lock(KeyFinder::mtx);
 			return os_process_next(size);
 		}
 
-		static inline void safe_push_back(const FoundKey& fk)
-		{
-			std::lock_guard<std::mutex> lock(KeyFinder::fk_mtx);
-			found_keys.push_back(fk);
-		}
-
 	};
+
+
 
 }
