@@ -9,7 +9,7 @@
 **/Win32
 **/x64
 .vscode
-aes-finder
 /aes-finder/Bin
 /aes-finder/Build
 **/cmake-build-*
+**/.idea

@@ -1,0 +1,11 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <ClCompile Include="src\aes-finder.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="src\aes-finder-test.hpp" />
+    <ClInclude Include="src\aes-finder.hpp" />
+    <ClInclude Include="src\aes-finder_os.hpp" />
+  </ItemGroup>
+</Project>
