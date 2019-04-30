@@ -3,7 +3,7 @@ Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio 15
 VisualStudioVersion = 15.0.28307.572
 MinimumVisualStudioVersion = 10.0.40219.1
-Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "aes-finder", "vs2017\aes-finder.vcxproj", "{31F3DC12-56C9-4DF8-BB2B-53CD701E7C18}"
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "aes-finder", "aes-finder\aes-finder_2017.vcxproj", "{31F3DC12-56C9-4DF8-BB2B-53CD701E7C18}"
 EndProject
 Global
 	GlobalSection(Performance) = preSolution
