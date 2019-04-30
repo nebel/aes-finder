@@ -313,7 +313,7 @@ static void os_startup()
 #if defined(OS_WINDOWS)
 		for (;;)
 		{
-			LPCVOID addr = (char*)os_process_info.BaseAddress + os_process_info.RegionSize;
+			const LPCVOID addr = reinterpret_cast<char*>(os_process_info.BaseAddress) + os_process_info.RegionSize;
 
 			if (VirtualQueryEx(os_process, addr, &os_process_info, sizeof(os_process_info)) == FALSE)
 			{
@@ -381,10 +381,10 @@ static void os_startup()
 #endif
 	}
 
-	static size_t os_process_read(size_t addr, void* buffer, size_t size)
+	static size_t os_process_read(const size_t addr, void* buffer, size_t size)
 	{
 #if defined(OS_WINDOWS)
-		if (!ReadProcessMemory(os_process, (LPCVOID)addr, buffer, size, &size))
+		if (!ReadProcessMemory(os_process, reinterpret_cast<LPCVOID>(addr), buffer, size, &size))
 		{
 			return 0;
 		}

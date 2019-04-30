@@ -899,14 +899,14 @@ int main(int argc, char* argv[])
 
 	if (argv[1][0] == '-')
 	{
-		uint32_t pid = atoi(argv[1] + 1);
+		const uint32_t pid = atoi(argv[1] + 1);
 		KeyFinder::find_keys(pid);
 	}
 	else
 	{
 		if (os_enum_start())
 		{
-			while (uint32_t pid = os_enum_next(argv[1]))
+			while (const uint32_t pid = os_enum_next(argv[1]))
 			{
 				KeyFinder::find_keys(pid);
 			}
