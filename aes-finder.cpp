@@ -9,6 +9,9 @@
 #include <atomic>
 #include <list>
 #include <algorithm>
+#include "aes-finder.hpp"
+
+using namespace AESFinder;
 
 #if defined(_MSC_VER) && (defined(_M_IX86) || defined(_M_AMD64))
 // _rotr is in <stdlib.h>
@@ -37,6 +40,11 @@ static uint32_t _rotr(uint32_t x, int n)
 #else
 #error Unknown OS!
 #endif
+
+std::atomic<size_t> KeyFinder::total(0);
+std::vector<KeyFinder::FoundKey> KeyFinder::found_keys = {};
+std::mutex KeyFinder::os_mtx;
+std::mutex KeyFinder::fk_mtx;
 
 static const uint32_t rcon[] = {
     0x01000000, 0x02000000, 0x04000000, 0x08000000,
@@ -117,9 +125,10 @@ static const uint32_t TE[256] = {
     0x824141c3, 0x299999b0, 0x5a2d2d77, 0x1e0f0f11, 0x7bb0b0cb, 0xa85454fc, 0x6dbbbbd6, 0x2c16163a,
 };
 
-static uint8_t byte(uint32_t x, int n)
+template <int N>
+constexpr uint8_t byte(uint32_t x)
 {
-	return (uint8_t)(x >> (8 * n));
+	return uint8_t(x >> (8 * N));
 }
 
 static uint32_t rotr32(uint32_t x, int n)
@@ -129,18 +138,18 @@ static uint32_t rotr32(uint32_t x, int n)
 
 static uint32_t setup_mix(uint32_t temp)
 {
-	return (Te[byte(temp, 2)] << 24)
-		^ (Te[byte(temp, 1)] << 16)
-		^ (Te[byte(temp, 0)] << 8)
-		^ Te[byte(temp, 3)];
+	return (Te[byte<2>(temp)] << 24)
+		^ (Te[byte<1>(temp)] << 16)
+		^ (Te[byte<0>(temp)] << 8)
+		^  Te[byte<3>(temp)];
 }
 
 static uint32_t setup_mix2(uint32_t temp)
 {
-	return rotr32(TE[Td[byte(temp, 3)]], 0)
-		^ rotr32(TE[Td[byte(temp, 2)]], 8)
-		^ rotr32(TE[Td[byte(temp, 1)]], 16)
-		^ rotr32(TE[Td[byte(temp, 0)]], 24);
+	return rotr32(TE[Td[byte<3>(temp)]], 0)
+		^ rotr32(TE[Td[byte<2>(temp)]], 8)
+		^ rotr32(TE[Td[byte<1>(temp)]], 16)
+		^ rotr32(TE[Td[byte<0>(temp)]], 24);
 }
 
 template <bool reversed>
@@ -162,35 +171,47 @@ uint32_t load<false>(uint32_t x)
 #endif
 }
 
-template <bool reversed>
-void store(uint32_t x, uint8_t* ptr);
-
-template <>
-void store<true>(uint32_t x, uint8_t* ptr)
+template <bool reversed, int N>
+void load(uint32_t* dst, const uint32_t* src)
 {
-	(uint32_t&)*ptr = x;
+	for (int i = 0; i < N; i++)
+	{
+		dst[i] = load<reversed>(src[i]);
+	}
 }
 
-template <>
-void store<false>(uint32_t x, uint8_t* ptr)
+template <bool reversed, int N>
+void loadmix(uint32_t* dst, const uint32_t* src)
 {
-#ifdef _MSC_VER
-	(uint32_t&)*ptr = _byteswap_ulong(x);
-#else
-	(uint32_t&)*ptr = __builtin_bswap32(x);
-#endif
+	for (int i = 0; i < N; i++)
+	{
+		dst[i] = setup_mix2(load<reversed>(src[i]));
+	}
+}
+
+template <bool reversed, int N>
+void store(uint32_t* dst, const uint32_t* src)
+{
+	load<!reversed, N>(dst, src);
+}
+
+template <bool reversed, int N>
+void storemix(uint32_t* dst, const uint32_t* src)
+{
+	for (int i = 0; i < N; i++)
+	{
+		dst[i] = load<false>(setup_mix2(load<reversed>(src[i])));
+	}
 }
 
 template <bool reversed>
-static bool aes128_detect_enc(const uint32_t* ctx, uint8_t* key)
+static bool aes128_detect_enc(const uint32_t* ctx, uint32_t* key)
 {
 	const uint32_t* ptr = ctx;
 
 	uint32_t tmp[8];
-	tmp[0] = load<reversed>(ctx[0]);
-	tmp[1] = load<reversed>(ctx[1]);
-	tmp[2] = load<reversed>(ctx[2]);
-	tmp[3] = load<reversed>(ctx[3]);
+
+	load<reversed, 4>(tmp, ctx);
 
 	for (int i = 0; ctx += 4, i < 10; i++)
 	{
@@ -206,33 +227,22 @@ static bool aes128_detect_enc(const uint32_t* ctx, uint8_t* key)
 		tmp[7] = tmp[3] ^ tmp[6];
 		if (tmp[7] != load<reversed>(ctx[3])) return false;
 
-		tmp[0] = tmp[4];
-		tmp[1] = tmp[5];
-		tmp[2] = tmp[6];
-		tmp[3] = tmp[7];
+		memcpy(tmp, tmp + 4, 4 * sizeof(uint32_t));
 	}
-
-	store<false>(load<reversed>(ptr[0]), key + 0);
-	store<false>(load<reversed>(ptr[1]), key + 4);
-	store<false>(load<reversed>(ptr[2]), key + 8);
-	store<false>(load<reversed>(ptr[3]), key + 12);
+	store<reversed, 4>(key, ptr);
 
 	return true;
 }
 
 template <bool reversed>
-static bool aes192_detect_enc(const uint32_t* ctx, uint8_t* key)
+static bool aes192_detect_enc(const uint32_t* ctx, uint32_t* key)
 {
 	const uint32_t* ptr = ctx;
 
 	uint32_t tmp[12];
-	for (int k = 0; k < 6; k++)
-	{
-		tmp[k] = load<reversed>(ctx[k]);
-	}
+	load<reversed, 6>(tmp, ctx);
 
-	int i = 0;
-	for (;;)
+	for (int i = 0;;)
 	{
 		ctx += 6;
 
@@ -259,33 +269,23 @@ static bool aes192_detect_enc(const uint32_t* ctx, uint8_t* key)
 		tmp[11] = tmp[5] ^ tmp[10];
 		if (tmp[11] != load<reversed>(ctx[5])) return false;
 
-		for (int k = 0; k < 6; k++)
-		{
-			tmp[k] = tmp[6 + k];
-		}
+		memcpy(tmp, tmp + 6, 6 * sizeof(uint32_t));
 	}
 
-	for (int k = 0; k < 6; k++)
-	{
-		store<false>(load<reversed>(ptr[k]), key + 4 * k);
-	}
+	store<reversed, 6>(key, ptr);
 
 	return true;
 }
 
 template <bool reversed>
-static bool aes256_detect_enc(const uint32_t* ctx, uint8_t* key)
+static bool aes256_detect_enc(const uint32_t* ctx, uint32_t* key)
 {
 	const uint32_t* ptr = ctx;
 
 	uint32_t tmp[16];
-	for (int k = 0; k < 8; k++)
-	{
-		tmp[k] = load<reversed>(ctx[k]);
-	}
+	load<reversed, 8>(tmp, ctx);
 
-	int i = 0;
-	for (;;)
+	for (int i = 0;;)
 	{
 		ctx += 8;
 
@@ -318,21 +318,15 @@ static bool aes256_detect_enc(const uint32_t* ctx, uint8_t* key)
 		tmp[15] = tmp[7] ^ tmp[14];
 		if (tmp[15] != load<reversed>(ctx[7])) return false;
 
-		for (int k = 0; k < 8; k++)
-		{
-			tmp[k] = tmp[8 + k];
-		}
+		memcpy(tmp, tmp + 8, 8 * sizeof(uint32_t));
 	}
 
-	for (int k = 0; k < 8; k++)
-	{
-		store<false>(load<reversed>(ptr[k]), key + 4 * k);
-	}
+	store<reversed, 8>(key, ptr);
 
 	return true;
 }
 
-static int aes_detect_enc(const uint32_t* ctx, uint8_t* key)
+static int aes_detect_enc(const uint32_t* ctx, uint32_t* key)
 {
 	if (aes128_detect_enc<true>(ctx, key) || aes128_detect_enc<false>(ctx, key))
 	{
@@ -351,15 +345,12 @@ static int aes_detect_enc(const uint32_t* ctx, uint8_t* key)
 }
 
 template <bool reversed>
-static bool aes128_detect_decF(const uint32_t* ctx, uint8_t* key)
+static bool aes128_detect_decF(const uint32_t* ctx, uint32_t* key)
 {
 	const uint32_t* ptr = ctx;
 
 	uint32_t tmp[8];
-	tmp[0] = load<reversed>(ctx[0]);
-	tmp[1] = load<reversed>(ctx[1]);
-	tmp[2] = load<reversed>(ctx[2]);
-	tmp[3] = load<reversed>(ctx[3]);
+	load<reversed, 4>(tmp, ctx);
 
 	for (int i = 0; ctx += 4, i < 9; i++)
 	{
@@ -375,10 +366,7 @@ static bool aes128_detect_decF(const uint32_t* ctx, uint8_t* key)
 		tmp[7] = tmp[3] ^ tmp[6];
 		if (tmp[7] != setup_mix2(load<reversed>(ctx[3]))) return false;
 
-		tmp[0] = tmp[4];
-		tmp[1] = tmp[5];
-		tmp[2] = tmp[6];
-		tmp[3] = tmp[7];
+		memcpy(tmp, tmp + 4, 4 * sizeof(uint32_t));
 	}
 
 	tmp[4] = tmp[0] ^ setup_mix(tmp[3]) ^ rcon[9];
@@ -393,22 +381,16 @@ static bool aes128_detect_decF(const uint32_t* ctx, uint8_t* key)
 	tmp[7] = tmp[3] ^ tmp[6];
 	if (tmp[7] != load<reversed>(ctx[3])) return false;
 
-	store<false>(load<reversed>(ptr[0]), key + 0);
-	store<false>(load<reversed>(ptr[1]), key + 4);
-	store<false>(load<reversed>(ptr[2]), key + 8);
-	store<false>(load<reversed>(ptr[3]), key + 12);
+	store<reversed, 4>(key, ptr);
 
 	return true;
 }
 
 template <bool reversed>
-static bool aes128_detect_decB(const uint32_t* ctx, uint8_t* key)
+static bool aes128_detect_decB(const uint32_t* ctx, uint32_t* key)
 {
 	uint32_t tmp[8];
-	tmp[0] = load<reversed>(ctx[40]);
-	tmp[1] = load<reversed>(ctx[41]);
-	tmp[2] = load<reversed>(ctx[42]);
-	tmp[3] = load<reversed>(ctx[43]);
+	load<reversed, 4>(tmp, ctx + 40);
 
 	for (int i = 0; i < 9; i++)
 	{
@@ -424,10 +406,7 @@ static bool aes128_detect_decB(const uint32_t* ctx, uint8_t* key)
 		tmp[7] = tmp[3] ^ tmp[6];
 		if (tmp[7] != setup_mix2(load<reversed>(ctx[39 - 4 * i]))) return false;
 
-		tmp[0] = tmp[4];
-		tmp[1] = tmp[5];
-		tmp[2] = tmp[6];
-		tmp[3] = tmp[7];
+		memcpy(tmp, tmp + 4, 4 * sizeof(uint32_t));
 	}
 
 	tmp[4] = tmp[0] ^ setup_mix(tmp[3]) ^ rcon[9];
@@ -442,26 +421,19 @@ static bool aes128_detect_decB(const uint32_t* ctx, uint8_t* key)
 	tmp[7] = tmp[3] ^ tmp[6];
 	if (tmp[7] != load<reversed>(ctx[3])) return false;
 
-	store<false>(load<reversed>(ctx[40]), key + 0);
-	store<false>(load<reversed>(ctx[41]), key + 4);
-	store<false>(load<reversed>(ctx[42]), key + 8);
-	store<false>(load<reversed>(ctx[43]), key + 12);
+	store<reversed, 4>(key, ctx + 40);
 
 	return true;
 }
 
 template <bool reversed>
-static bool aes192_detect_decF(const uint32_t* ctx, uint8_t* key)
+static bool aes192_detect_decF(const uint32_t* ctx, uint32_t* key)
 {
 	const uint32_t* ptr = ctx;
 
 	uint32_t tmp[12];
-	tmp[0] = load<reversed>(ctx[0]);
-	tmp[1] = load<reversed>(ctx[1]);
-	tmp[2] = load<reversed>(ctx[2]);
-	tmp[3] = load<reversed>(ctx[3]);
-	tmp[4] = setup_mix2(load<reversed>(ctx[4]));
-	tmp[5] = setup_mix2(load<reversed>(ctx[5]));
+	load<reversed, 4>(tmp, ctx);
+	loadmix<reversed, 2>(tmp + 4, ctx + 4);
 
 	for (int i = 0; ctx += 6, i < 7; i++)
 	{
@@ -483,10 +455,7 @@ static bool aes192_detect_decF(const uint32_t* ctx, uint8_t* key)
 		tmp[11] = tmp[5] ^ tmp[10];
 		if (tmp[11] != setup_mix2(load<reversed>(ctx[5]))) return false;
 
-		for (int k = 0; k < 6; k++)
-		{
-			tmp[k] = tmp[6 + k];
-		}
+		memcpy(tmp, tmp + 6, 6 * sizeof(uint32_t));
 	}
 
 	tmp[6] = tmp[0] ^ setup_mix(tmp[5]) ^ rcon[7];
@@ -501,30 +470,19 @@ static bool aes192_detect_decF(const uint32_t* ctx, uint8_t* key)
 	tmp[9] = tmp[3] ^ tmp[8];
 	if (tmp[9] != load<reversed>(ctx[3])) return false;
 
-	store<false>(load<reversed>(ptr[0]), key + 0);
-	store<false>(load<reversed>(ptr[1]), key + 4);
-	store<false>(load<reversed>(ptr[2]), key + 8);
-	store<false>(load<reversed>(ptr[3]), key + 12);
-	store<false>(setup_mix2(load<reversed>(ptr[4])), key + 16);
-	store<false>(setup_mix2(load<reversed>(ptr[5])), key + 20);
+	store<reversed, 4>(key, ptr);
+	storemix<reversed, 2>(key + 4, ptr + 4);
 
 	return true;
 }
 
 template <bool reversed>
-static bool aes192_detect_decB(const uint32_t* ctx, uint8_t* key)
+static bool aes192_detect_decB(const uint32_t* ctx, uint32_t* key)
 {
 	uint32_t tmp[12];
 
-	tmp[0] = load<reversed>(ctx[48]);
-	tmp[1] = load<reversed>(ctx[49]);
-	tmp[2] = load<reversed>(ctx[50]);
-	tmp[3] = load<reversed>(ctx[51]);
-
-	//
-
-	tmp[4] = setup_mix2(load<reversed>(ctx[44]));
-	tmp[5] = setup_mix2(load<reversed>(ctx[45]));
+	load<reversed, 4>(tmp, ctx + 48);
+	loadmix<reversed, 2>(tmp + 4, ctx + 44);
 
 	tmp[6] = tmp[0] ^ setup_mix(tmp[5]) ^ rcon[0];
 	if (tmp[6] != setup_mix2(load<reversed>(ctx[46]))) return false;
@@ -546,10 +504,7 @@ static bool aes192_detect_decB(const uint32_t* ctx, uint8_t* key)
 	tmp[11] = tmp[5] ^ tmp[10];
 	if (tmp[11] != setup_mix2(load<reversed>(ctx[43]))) return false;
 
-	for (int k = 0; k < 6; k++)
-	{
-		tmp[k] = tmp[6 + k];
-	}
+	memcpy(tmp, tmp + 6, 6 * sizeof(uint32_t));
 
 	//
 
@@ -573,10 +528,7 @@ static bool aes192_detect_decB(const uint32_t* ctx, uint8_t* key)
 	tmp[11] = tmp[5] ^ tmp[10];
 	if (tmp[11] != setup_mix2(load<reversed>(ctx[33]))) return false;
 
-	for (int k = 0; k < 6; k++)
-	{
-		tmp[k] = tmp[6 + k];
-	}
+	memcpy(tmp, tmp + 6, 6 * sizeof(uint32_t));
 
 	tmp[6] = tmp[0] ^ setup_mix(tmp[5]) ^ rcon[2];
 	if (tmp[6] != setup_mix2(load<reversed>(ctx[34]))) return false;
@@ -598,10 +550,7 @@ static bool aes192_detect_decB(const uint32_t* ctx, uint8_t* key)
 	tmp[11] = tmp[5] ^ tmp[10];
 	if (tmp[11] != setup_mix2(load<reversed>(ctx[31]))) return false;
 
-	for (int k = 0; k < 6; k++)
-	{
-		tmp[k] = tmp[6 + k];
-	}
+	memcpy(tmp, tmp + 6, 6 * sizeof(uint32_t));
 
 	//
 
@@ -625,10 +574,7 @@ static bool aes192_detect_decB(const uint32_t* ctx, uint8_t* key)
 	tmp[11] = tmp[5] ^ tmp[10];
 	if (tmp[11] != setup_mix2(load<reversed>(ctx[21]))) return false;
 
-	for (int k = 0; k < 6; k++)
-	{
-		tmp[k] = tmp[6 + k];
-	}
+	memcpy(tmp, tmp + 6, 6 * sizeof(uint32_t));
 
 	tmp[6] = tmp[0] ^ setup_mix(tmp[5]) ^ rcon[4];
 	if (tmp[6] != setup_mix2(load<reversed>(ctx[22]))) return false;
@@ -650,10 +596,7 @@ static bool aes192_detect_decB(const uint32_t* ctx, uint8_t* key)
 	tmp[11] = tmp[5] ^ tmp[10];
 	if (tmp[11] != setup_mix2(load<reversed>(ctx[19]))) return false;
 
-	for (int k = 0; k < 6; k++)
-	{
-		tmp[k] = tmp[6 + k];
-	}
+	memcpy(tmp, tmp + 6, 6 * sizeof(uint32_t));
 
 	//
 
@@ -677,10 +620,7 @@ static bool aes192_detect_decB(const uint32_t* ctx, uint8_t* key)
 	tmp[11] = tmp[5] ^ tmp[10];
 	if (tmp[11] != setup_mix2(load<reversed>(ctx[9]))) return false;
 
-	for (int k = 0; k < 6; k++)
-	{
-		tmp[k] = tmp[6 + k];
-	}
+	memcpy(tmp, tmp + 6, 6 * sizeof(uint32_t));
 
 	tmp[6] = tmp[0] ^ setup_mix(tmp[5]) ^ rcon[6];
 	if (tmp[6] != setup_mix2(load<reversed>(ctx[10]))) return false;
@@ -702,10 +642,7 @@ static bool aes192_detect_decB(const uint32_t* ctx, uint8_t* key)
 	tmp[11] = tmp[5] ^ tmp[10];
 	if (tmp[11] != setup_mix2(load<reversed>(ctx[7]))) return false;
 
-	for (int k = 0; k < 6; k++)
-	{
-		tmp[k] = tmp[6 + k];
-	}
+	memcpy(tmp, tmp + 6, 6 * sizeof(uint32_t));
 
 	//
 
@@ -721,30 +658,20 @@ static bool aes192_detect_decB(const uint32_t* ctx, uint8_t* key)
 	tmp[9] = tmp[3] ^ tmp[8];
 	if (tmp[9] != load<reversed>(ctx[3])) return false;
 
-	store<false>(load<reversed>(ctx[48]), key + 0);
-	store<false>(load<reversed>(ctx[49]), key + 4);
-	store<false>(load<reversed>(ctx[50]), key + 8);
-	store<false>(load<reversed>(ctx[51]), key + 12);
-	store<false>(setup_mix2(load<reversed>(ctx[44])), key + 16);
-	store<false>(setup_mix2(load<reversed>(ctx[45])), key + 20);
+	store<reversed, 4>(key, ctx + 48);
+	storemix<reversed, 2>(key + 4, ctx + 44);
 
 	return true;
 }
 
 template <bool reversed>
-static bool aes256_detect_decF(const uint32_t* ctx, uint8_t* key)
+static bool aes256_detect_decF(const uint32_t* ctx, uint32_t* key)
 {
 	const uint32_t* ptr = ctx;
 
 	uint32_t tmp[16];
-	tmp[0] = load<reversed>(ctx[0]);
-	tmp[1] = load<reversed>(ctx[1]);
-	tmp[2] = load<reversed>(ctx[2]);
-	tmp[3] = load<reversed>(ctx[3]);
-	tmp[4] = setup_mix2(load<reversed>(ctx[4]));
-	tmp[5] = setup_mix2(load<reversed>(ctx[5]));
-	tmp[6] = setup_mix2(load<reversed>(ctx[6]));
-	tmp[7] = setup_mix2(load<reversed>(ctx[7]));
+	load<reversed, 4>(tmp, ctx);
+	loadmix<reversed, 4>(tmp + 4, ctx + 4);
 
 	for (int i = 0; ctx += 8, i < 6; i++)
 	{
@@ -772,10 +699,7 @@ static bool aes256_detect_decF(const uint32_t* ctx, uint8_t* key)
 		tmp[15] = tmp[7] ^ tmp[14];
 		if (tmp[15] != setup_mix2(load<reversed>(ctx[7]))) return false;
 
-		for (int k = 0; k < 8; k++)
-		{
-			tmp[k] = tmp[8 + k];
-		}
+		memcpy(tmp, tmp + 8, 8 * sizeof(uint32_t));
 	}
 
 	tmp[8] = tmp[0] ^ setup_mix(tmp[7]) ^ rcon[6];
@@ -790,30 +714,18 @@ static bool aes256_detect_decF(const uint32_t* ctx, uint8_t* key)
 	tmp[11] = tmp[3] ^ tmp[10];
 	if (tmp[11] != load<reversed>(ctx[3])) return false;
 
-	store<false>(load<reversed>(ptr[0]), key + 0);
-	store<false>(load<reversed>(ptr[1]), key + 4);
-	store<false>(load<reversed>(ptr[2]), key + 8);
-	store<false>(load<reversed>(ptr[3]), key + 12);
-	store<false>(setup_mix2(load<reversed>(ptr[4])), key + 16);
-	store<false>(setup_mix2(load<reversed>(ptr[5])), key + 20);
-	store<false>(setup_mix2(load<reversed>(ptr[6])), key + 24);
-	store<false>(setup_mix2(load<reversed>(ptr[7])), key + 28);
+	store<reversed, 4>(key, ptr);
+	storemix<reversed, 4>(key + 4, ptr + 4);
 
 	return true;
 }
 
 template <bool reversed>
-static bool aes256_detect_decB(const uint32_t* ctx, uint8_t* key)
+static bool aes256_detect_decB(const uint32_t* ctx, uint32_t* key)
 {
 	uint32_t tmp[16];
-	tmp[0] = load<reversed>(ctx[56]);
-	tmp[1] = load<reversed>(ctx[57]);
-	tmp[2] = load<reversed>(ctx[58]);
-	tmp[3] = load<reversed>(ctx[59]);
-	tmp[4] = setup_mix2(load<reversed>(ctx[52]));
-	tmp[5] = setup_mix2(load<reversed>(ctx[53]));
-	tmp[6] = setup_mix2(load<reversed>(ctx[54]));
-	tmp[7] = setup_mix2(load<reversed>(ctx[55]));
+	load<reversed, 4>(tmp, ctx + 56);
+	loadmix<reversed, 4>(tmp + 4, ctx + 52);
 
 	for (int i = 0; i < 6; i++)
 	{
@@ -841,10 +753,7 @@ static bool aes256_detect_decB(const uint32_t* ctx, uint8_t* key)
 		tmp[15] = tmp[7] ^ tmp[14];
 		if (tmp[15] != setup_mix2(load<reversed>(ctx[47 - 8 * i]))) return false;
 
-		for (int k = 0; k < 8; k++)
-		{
-			tmp[k] = tmp[8 + k];
-		}
+		memcpy(tmp, tmp + 8, 8 * sizeof(uint32_t));
 	}
 
 	tmp[8] = tmp[0] ^ setup_mix(tmp[7]) ^ rcon[6];
@@ -859,20 +768,14 @@ static bool aes256_detect_decB(const uint32_t* ctx, uint8_t* key)
 	tmp[11] = tmp[3] ^ tmp[10];
 	if (tmp[11] != load<reversed>(ctx[3])) return false;
 
-	store<false>(load<reversed>(ctx[56]), key + 0);
-	store<false>(load<reversed>(ctx[57]), key + 4);
-	store<false>(load<reversed>(ctx[58]), key + 8);
-	store<false>(load<reversed>(ctx[59]), key + 12);
-	store<false>(setup_mix2(load<reversed>(ctx[52])), key + 16);
-	store<false>(setup_mix2(load<reversed>(ctx[53])), key + 20);
-	store<false>(setup_mix2(load<reversed>(ctx[54])), key + 24);
-	store<false>(setup_mix2(load<reversed>(ctx[55])), key + 28);
+	store<reversed, 4>(key, ctx + 56);
+	storemix<reversed, 4>(key + 4, ctx + 52);
 
 	return true;
 }
 
 template <bool reversed>
-static int aes_detect_dec(const uint32_t* ctx, uint8_t* key)
+static int aes_detect_dec(const uint32_t* ctx, uint32_t* key)
 {
 	if (aes128_detect_decF<reversed>(ctx, key) || aes128_detect_decB<reversed>(ctx, key))
 	{
@@ -892,7 +795,7 @@ static int aes_detect_dec(const uint32_t* ctx, uint8_t* key)
 	return 0;
 }
 
-static int aes_detect_dec(const uint32_t* ctx, uint8_t* key)
+static int aes_detect_dec(const uint32_t* ctx, uint32_t* key)
 {
 	if (int len = aes_detect_dec<true>(ctx, key))
 	{
@@ -907,88 +810,73 @@ static int aes_detect_dec(const uint32_t* ctx, uint8_t* key)
 	return 0;
 }
 
-#define BUFFER_SIZE (64 * 1024)
-
-class KeyFinder
+void KeyFinder::operator()()
 {
-	static std::mutex os_mtx;
-	static std::mutex fk_mtx;
-
-	enum KeyOp
+	clock_t t0 = clock();
+	size_t size = 0;
+	size_t avail = 0;
+	size_t region = 0;
+	size_t region_size = 0;
+	size_t addr = 0;
+	for (;;)
 	{
-		ENCRYPT,
-		DECRYPT
-	};
-
-	struct FoundKey
-	{
-		void*   address;
-		uint8_t key[32];
-		KeyOp   key_op;
-		int     key_size;
-	};
-
-public:
-	static std::atomic<size_t> total;
-	static std::vector<FoundKey> found_keys;
-
-	double thread_time;
-
-	void operator()()
-	{
-		clock_t t0 = clock();
-		uint8_t buffer[BUFFER_SIZE];
-		size_t size = 0;
-		uint32_t avail = 0;
-		size_t region = 0;
-		size_t region_size = 0;
-		size_t addr = 0;
-		for (;;)
+		if (size == 0)
 		{
-			if (size == 0)
+			size_t next_size;
+			size_t next = KeyFinder::safe_process_next(next_size);
+			if (next == 0)
 			{
-				uint64_t next_size;
-				uint64_t next = KeyFinder::safe_process_next(&next_size);
-				if (next == 0)
-				{
-					break;
-				}
-
-				if (region + region_size != next)
-				{
-					avail = 0;
-				}
-
-				addr = region = next;
-				size = region_size = next_size;
+				break;
 			}
 
-			uint32_t read = sizeof(buffer) - avail;
-			if (read > size) read = (uint32_t)size;
-
-			read = os_process_read(region, buffer + avail, read);
-			if (read == 0)
+			if (region + region_size != next)
 			{
 				avail = 0;
-				size = 0;
-				continue;
 			}
-			KeyFinder::total += read;
-			region += read;
-			size -= read;
-			avail += read;
+
+			addr = region = next;
+			size = region_size = next_size;
+		}
+
+		size_t read = BUFFER_SIZE - avail;
+		if (read > size) read = size;
+
+		read = os_process_read(region, buffer + avail, read);
+		if (read == 0)
+		{
+			avail = 0;
+			size = 0;
+			continue;
+		}
+		KeyFinder::total += read;
+		region += read;
+		size -= read;
+		avail += read;
 
 
-			uint32_t offset = 0;
-			if (avail >= 60 * sizeof(uint32_t))
+		size_t offset = 0;
+		if (avail >= CTX_SIZE * sizeof(uint32_t))
+		{
+			while (offset <= avail - CTX_SIZE * sizeof(uint32_t))
 			{
-				while (offset <= avail - 60 * sizeof(uint32_t))
+				FoundKey fk = {};
+				int len = aes_detect_enc(reinterpret_cast<const uint32_t*>(buffer + offset), reinterpret_cast<uint32_t*>(fk.key));
+				if (len != 0)
 				{
-					FoundKey fk = {};
-					int len = aes_detect_enc((const uint32_t*)&buffer[offset], fk.key);
+					fk.key_op = ENCRYPT;
+					fk.address = reinterpret_cast<void*>(addr);
+					fk.key_size = len;
+					KeyFinder::safe_push_back(fk);
+
+					offset += 28 + len;
+					addr += 28 + len;
+				}
+				else
+				{
+					len = aes_detect_dec(reinterpret_cast<const uint32_t*>(buffer + offset), reinterpret_cast<uint32_t*>(fk.key));
 					if (len != 0)
 					{
-						fk.key_op = ENCRYPT;
+						fk.key_op = DECRYPT;
 						fk.address = reinterpret_cast<void*>(addr);
 						fk.key_size = len;
 						KeyFinder::safe_push_back(fk);
@@ -998,79 +886,44 @@ public:
 					}
 					else
 					{
-						len = aes_detect_dec((const uint32_t*)&buffer[offset], fk.key);
-						if (len != 0)
-						{
-							fk.key_op = DECRYPT;
-							fk.address = reinterpret_cast<void*>(addr);
-							fk.key_size = len;
-							KeyFinder::safe_push_back(fk);
-
-							offset += 28 + len;
-							addr += 28 + len;
-						}
-						else
-						{
-							offset += 4;
-							addr += 4;
-						}
+						offset += 4;
+						addr += 4;
 					}
 				}
-
-				avail -= offset;
 			}
 
-			memmove(buffer, buffer + offset, avail);
+			avail -= offset;
 		}
 
-		clock_t t1 = clock();
-		thread_time = double(t1 - t0) / CLOCKS_PER_SEC;
-
+		memmove(buffer, buffer + offset, avail);
 	}
 
-	static void PrintKeys()
+	clock_t t1 = clock();
+	thread_time = double(t1 - t0) / CLOCKS_PER_SEC;
+
+}
+
+
+void KeyFinder::PrintKeys()
+{
+	std::sort(KeyFinder::found_keys.begin(), KeyFinder::found_keys.end(), KeyFinder::CompareKeyAddress);
+	for (auto fk : KeyFinder::found_keys)
 	{
-		std::sort(KeyFinder::found_keys.begin(), KeyFinder::found_keys.end(), KeyFinder::CompareKeyAddress);
-		for(auto fk : KeyFinder::found_keys)
+		if (fk.key_op == ENCRYPT)
 		{
-			if(fk.key_op == ENCRYPT)
-			{
-				printf("[%p] Found AES-%d encryption key: ", fk.address, fk.key_size * 8);
-			}
-			else
-			{
-				printf("[%p] Found AES-%d decryption key: ", fk.address, fk.key_size * 8);
-			}
-			for (int i = 0; i < fk.key_size; i++)
-			{
-				printf("%02x", fk.key[i]);
-			}
-			printf("\n");
+			printf("[%p] Found AES-%d encryption key: ", fk.address, fk.key_size * 8);
 		}
+		else
+		{
+			printf("[%p] Found AES-%d decryption key: ", fk.address, fk.key_size * 8);
+		}
+		for (int i = 0; i < fk.key_size; i++)
+		{
+			printf("%02x", fk.key[i]);
+		}
+		printf("\n");
 	}
-
-	static bool CompareKeyAddress(FoundKey k1, FoundKey k2)
-	{
-		return(k1.address < k2.address);
-	}
-
-	static uint64_t safe_process_next(uint64_t* size)
-	{
-		std::lock_guard<std::mutex> lock(KeyFinder::os_mtx);
-		return os_process_next(size);
-	}
-
-	static void safe_push_back(const FoundKey& fk)
-	{
-		std::lock_guard<std::mutex> lock(KeyFinder::fk_mtx);
-		found_keys.push_back(fk);
-	}
-};
-
-std::atomic<size_t> KeyFinder::total(0);
-std::vector<KeyFinder::FoundKey> KeyFinder::found_keys = {};
-std::mutex KeyFinder::os_mtx;
-std::mutex KeyFinder::fk_mtx;
+}
 
 
 #include "aes-finder-test.h"

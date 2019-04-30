@@ -285,16 +285,32 @@ static void self_test()
 
     uint8_t tmp[32];
 
-#define AES_CHECK(fun, reverse, arr, len)                              \
-    if (!fun<reverse>(arr, tmp) || memcmp(aes_key, tmp, len) != 0)     \
-    {                                                                  \
-        printf("Self-test %s<%s>(%s) failed\n", #fun, #reverse, #arr); \
-        abort();                                                       \
-    }                                                                  \
-    else                                                               \
-    {                                                                  \
-        memset(tmp, 0, sizeof(tmp));                                   \
-    }                                                                  \
+#define AES_CHECK(fun, reverse, arr, len)                                                           \
+    if (!fun<reverse>(arr, reinterpret_cast<uint32_t*>(tmp)))								\
+    {                                                                                               \
+		printf("Self-test %s<%s>(%s) failed (returned false)\n", #fun, #reverse, #arr);           \
+		abort();                                                                                  \
+    }                                                                                               \
+    else if(memcmp(aes_key, tmp, len) != 0)                                                         \
+    {																			\
+    		printf("Self-test %s<%s>(%s) failed (keys were not equal)\n", #fun, #reverse, #arr);		\
+		printf("Expected: ");														\
+		for (int i = 0; i < len; i++)													\
+    		{																		\
+    			printf("%02X ", (aes_key)[i]);											\
+    		}																		\
+		printf("\nGot:      ");														\
+		for (int i = 0; i < len; i++)													\
+		{																		\
+			printf("%02X ", (tmp)[i]);												\
+		}																		\
+		printf("\n");																\
+    		abort();																	\
+    }																			\
+    else                                                                                            \
+    {                                                                                               \
+        memset(tmp, 0, sizeof(tmp));                                                                \
+    }                                                                                               \
 
     AES_CHECK(aes128_detect_enc, true, aes128_encB, 16);
     AES_CHECK(aes128_detect_enc, false, aes128_encL, 16);

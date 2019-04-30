@@ -9,3 +9,5 @@ msvc2013/x64
 *.psess
 .vs
 *.exe
+**/Win32
+**/x64

@@ -101,7 +101,7 @@ static bool os_process_begin(uint32_t pid)
     return true;
 }
 
-static uint64_t os_process_next(uint64_t* size)
+static size_t os_process_next(size_t& size)
 {
     for (;;)
     {
@@ -111,8 +111,8 @@ static uint64_t os_process_next(uint64_t* size)
             return 0;
         }
 
-        unsigned long long start;
-        unsigned long long end;
+        size_t start;
+	   size_t end;
         char flag;
         if (sscanf(line, "%llx-%llx %c", &start, &end, &flag) != 3)
         {
@@ -124,15 +124,15 @@ static uint64_t os_process_next(uint64_t* size)
             continue;
         }
 
-        *size = end - start;
-        return (uint64_t)start;
+        size = end - start;
+        return start;
     }
 }
 
-static uint32_t os_process_read(uint64_t addr, void* buffer, uint32_t size)
+static size_t os_process_read(size_t addr, void* buffer, size_t size)
 {
-    struct iovec in = { (void*)addr, (size_t)size };
-    struct iovec out = { buffer, (size_t)size };
+    struct iovec in = { reinterpret_cast<void*>(addr), size };
+    struct iovec out = { buffer, size };
 
     ssize_t read = process_vm_readv(os_process_pid, &out, 1, &in, 1, 0);
 

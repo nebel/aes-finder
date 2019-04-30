@@ -109,7 +109,7 @@ static bool os_process_begin(uint32_t pid)
     return true;
 }
 
-static uint64_t os_process_next(uint64_t* size)
+static size_t os_process_next(size_t& size)
 {
     for (;;)
     {
@@ -125,19 +125,18 @@ static uint64_t os_process_next(uint64_t* size)
             continue;
         }
 
-        *size = os_process_info.RegionSize;
-        return (uint64_t)os_process_info.BaseAddress;
+        size = os_process_info.RegionSize;
+        return reinterpret_cast<size_t>(os_process_info.BaseAddress);
     }
 }
 
-static uint32_t os_process_read(uint64_t addr, void* buffer, uint32_t size)
+static size_t os_process_read(size_t addr, void* buffer, size_t size)
 {
-    SIZE_T read = size;
-    if (!ReadProcessMemory(os_process, (LPCVOID)addr, buffer, read, &read))
+    if (!ReadProcessMemory(os_process, (LPCVOID)addr, buffer, size, &size))
     {
         return 0;
     }
-    return (uint32_t)read;
+    return size;
 }
 
 static void os_process_end()

@@ -106,7 +106,7 @@ static bool os_process_begin(uint32_t pid)
     return true;
 }
 
-static uint64_t os_process_next(uint64_t* size)
+static size_t os_process_next(size_t& size)
 {
     for (;;)
     {
@@ -129,20 +129,19 @@ static uint64_t os_process_next(uint64_t* size)
         }
 
                 
-        *size = os_process_size;
+        size = os_process_size;
         return os_process_addr;
     }
 }
 
-static uint32_t os_process_read(uint64_t addr, void* buffer, uint32_t size)
+static size_t os_process_read(size_t addr, void* buffer, size_t size)
 {
-    vm_size_t read = size;
-    if (vm_read_overwrite(os_process_task, addr, size, (vm_address_t)buffer, &read) != KERN_SUCCESS)
+    if (vm_read_overwrite(os_process_task, addr, size, (vm_address_t)buffer, &size) != KERN_SUCCESS)
     {
         return 0;
     }
 
-    return (uint32_t)read;
+    return size;
 }
 
 static void os_process_end()
