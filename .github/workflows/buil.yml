@@ -23,11 +23,11 @@ jobs:
                 submodules: "recursive"
             - name: make
               shell: cmd
-              run: C:\MinGW\set_distro_paths && g++ -O3 -march=native -fomit-frame-pointer -DWIN32 aes-finder.cpp -o aes-finder -static-libstdc++ -static-libgcc
+              run: C:\MinGW\set_distro_paths && g++ -O3 -march=native -fomit-frame-pointer -DWIN32 aes-finder/src/aes-finder.cpp -o aes-finder -static-libstdc++ -static-libgcc
             - name: Upload binary
               uses: actions/upload-artifact@v2
               with:
                 path: aes-finder.exe
                 # platfrom-name-version-builder
                 # todo: append _github_actions_hosted_runner to builder field where possible
-                name: x86_64-pc-winnt-jvav-9git-azure_vm_winnt
+                name: x86_64-pc-winnt
